@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { edgePath, layoutTree } from '../layout'
-import { isStale, relativeTime, statusLabel } from '../format'
+import { isStale, matchNode, relativeTime, statusLabel } from '../format'
+import { ZOOM_STEP, clampZoom, fitZoom } from '../zoom'
 import type { BranchNode, Worktree } from '../types'
 import PrChip from './PrChip.vue'
 
@@ -11,8 +12,9 @@ const props = withDefaults(
     worktrees: Worktree[]
     editor: string
     now?: Date
+    rem?: number // root font size in px; node geometry follows it
   }>(),
-  { now: () => new Date() },
+  { now: () => new Date(), rem: undefined },
 )
 const emit = defineEmits<{
   terminal: [path: string]
@@ -21,16 +23,69 @@ const emit = defineEmits<{
   plan: [sessionId: string]
 }>()
 
-// Node geometry is in rem so it follows the root font size in style.css.
-const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16
-const NODE_W = 19.5 * rem
-const NODE_H = 6.2 * rem
-const dims = { nodeW: NODE_W, nodeH: NODE_H, gapX: 3.5 * rem, gapY: 1 * rem }
+// Node geometry is in rem so it follows the UI size.
+const remPx = computed(() => props.rem ?? (parseFloat(getComputedStyle(document.documentElement).fontSize) || 16))
+const nodeW = computed(() => 19.5 * remPx.value)
+const nodeH = computed(() => 6.2 * remPx.value)
+const dims = computed(() => ({ nodeW: nodeW.value, nodeH: nodeH.value, gapX: 3.5 * remPx.value, gapY: remPx.value }))
 
-const layout = computed(() => layoutTree(props.graph.nodes, dims))
+const layout = computed(() => layoutTree(props.graph.nodes, dims.value))
 const byBranch = computed(() => new Map(props.graph.nodes.map((n) => [n.branch, n])))
 const selected = ref('')
 
+// --- zoom -------------------------------------------------------------------
+const zoom = ref(1)
+const scrollEl = ref<HTMLElement | null>(null)
+const zoomPct = computed(() => Math.round(zoom.value * 100))
+const zoomBy = (delta: number) => (zoom.value = clampZoom(zoom.value + delta))
+
+function fit() {
+  const available = (scrollEl.value?.clientWidth ?? 0) - 2 * remPx.value
+  zoom.value = fitZoom(available, layout.value.width)
+}
+
+function onWheel(e: WheelEvent) {
+  if (!e.ctrlKey) return // a plain wheel scrolls the graph
+  e.preventDefault()
+  zoomBy(e.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP)
+}
+
+// --- search -----------------------------------------------------------------
+const query = ref('')
+const cursor = ref(-1)
+const searching = computed(() => query.value.trim() !== '')
+const matches = computed(() => (searching.value ? props.graph.nodes.filter((n) => matchNode(n, query.value)).map((n) => n.branch) : []))
+const countLabel = computed(() =>
+  matches.value.length === 0 ? 'no matches' : `${matches.value.length} match${matches.value.length === 1 ? '' : 'es'}`,
+)
+watch(query, () => (cursor.value = -1))
+
+function clearSearch() {
+  query.value = ''
+  cursor.value = -1
+}
+
+function nextMatch() {
+  if (matches.value.length === 0) return
+  cursor.value = (cursor.value + 1) % matches.value.length
+  const branch = matches.value[cursor.value]
+  selected.value = branch
+  focusNode(branch)
+}
+
+/** Scrolls so the node is centred in the viewport. */
+function focusNode(branch: string) {
+  const el = scrollEl.value
+  const p = layout.value.positions.get(branch)
+  if (!el || !p || typeof el.scrollTo !== 'function') return
+  el.scrollTo({
+    left: (p.x + nodeW.value / 2) * zoom.value - el.clientWidth / 2,
+    top: (p.y + nodeH.value / 2) * zoom.value - el.clientHeight / 2,
+    behavior: 'smooth',
+  })
+}
+
+// --- nodes ------------------------------------------------------------------
 function worktreeOf(n: BranchNode): Worktree | undefined {
   return n.worktree ? props.worktrees.find((w) => w.path === n.worktree!.path) : undefined
 }
@@ -42,7 +97,7 @@ const ago = (iso: string) => relativeTime(iso, props.now)
 const edges = computed(() =>
   layout.value.edges.map((e) => ({
     key: `${e.from}>${e.to}`,
-    d: edgePath(pos(e.from), pos(e.to), NODE_W, NODE_H),
+    d: edgePath(pos(e.from), pos(e.to), nodeW.value, nodeH.value),
     inferred: byBranch.value.get(e.to)?.via !== 'pr',
   })),
 )
@@ -67,6 +122,29 @@ function toggle(branch: string) {
 
 <template>
   <div class="branch-graph">
+    <div class="toolbar">
+      <div class="search">
+        <input
+          v-model="query"
+          data-search
+          type="search"
+          placeholder="Search branches, PRs, worktrees…"
+          spellcheck="false"
+          @keydown.enter.prevent="nextMatch"
+          @keydown.esc="clearSearch"
+        />
+        <span v-if="searching" data-search-count class="muted">{{ countLabel }}</span>
+        <button v-if="query" data-search-clear title="Clear search (Esc)" @click="clearSearch">✕</button>
+      </div>
+      <div class="zoom">
+        <button data-zoom="out" title="Zoom out (Ctrl + wheel)" @click="zoomBy(-ZOOM_STEP)">−</button>
+        <span data-zoom="label" class="zoom-label">{{ zoomPct }}%</span>
+        <button data-zoom="in" title="Zoom in (Ctrl + wheel)" @click="zoomBy(ZOOM_STEP)">+</button>
+        <button data-zoom="fit" title="Fit the whole graph in view" @click="fit">Fit</button>
+        <button data-zoom="reset" title="Back to 100%" @click="zoom = 1">100%</button>
+      </div>
+    </div>
+
     <div class="legend muted">
       <span><i class="swatch solid" /> PR base</span>
       <span><i class="swatch dashed" /> inferred from git history</span>
@@ -74,37 +152,52 @@ function toggle(branch: string) {
       <span v-if="graph.hidden > 0">{{ graph.hidden }} more branches hidden</span>
     </div>
 
-    <div class="graph-scroll">
-      <div class="graph" :style="{ width: `${layout.width}px`, height: `${layout.height}px` }">
-        <svg class="edges" :width="layout.width" :height="layout.height" aria-hidden="true">
-          <path v-for="e in edges" :key="e.key" :d="e.d" class="edge" :class="{ inferred: e.inferred }" />
-        </svg>
-
+    <div ref="scrollEl" class="graph-scroll" @wheel="onWheel">
+      <div class="graph-zoom" :style="{ width: `${layout.width * zoom}px`, height: `${layout.height * zoom}px` }">
         <div
-          v-for="n in graph.nodes"
-          :key="n.branch"
-          class="gnode"
-          :class="[`status-${stateOf(n)}`, { merged: n.merged, stale: stale(n), selected: selected === n.branch, root: n.isDefault }]"
-          :data-branch="n.branch"
-          :style="{ left: `${pos(n.branch).x}px`, top: `${pos(n.branch).y}px`, width: `${NODE_W}px`, height: `${NODE_H}px` }"
-          role="button"
-          tabindex="0"
-          @click="toggle(n.branch)"
-          @keydown.enter.prevent="toggle(n.branch)"
+          class="graph"
+          :style="{ width: `${layout.width}px`, height: `${layout.height}px`, transform: `scale(${zoom})`, transformOrigin: '0 0' }"
         >
-          <div class="line">
-            <span class="dot" />
-            <strong class="mono clip" :title="n.branch">{{ n.branch }}</strong>
-            <span v-if="n.isDefault" class="badge">default</span>
-          </div>
-          <div class="line">
-            <PrChip v-if="n.pr" :pr="n.pr" />
-            <span v-else-if="!n.isDefault" class="muted">no PR</span>
-          </div>
-          <div v-if="!n.isDefault" class="line muted small">
-            <span class="mono">↑{{ n.ahead }} ↓{{ n.behind }}</span>
-            <span>· {{ ago(n.date) }}</span>
-            <span v-if="n.worktree" class="clip">· {{ n.worktree.name }}</span>
+          <svg class="edges" :width="layout.width" :height="layout.height" aria-hidden="true">
+            <path v-for="e in edges" :key="e.key" :d="e.d" class="edge" :class="{ inferred: e.inferred }" />
+          </svg>
+
+          <div
+            v-for="n in graph.nodes"
+            :key="n.branch"
+            class="gnode"
+            :class="[
+              `status-${stateOf(n)}`,
+              {
+                merged: n.merged,
+                stale: stale(n),
+                selected: selected === n.branch,
+                root: n.isDefault,
+                match: searching && matches.includes(n.branch),
+                dim: searching && !matches.includes(n.branch),
+              },
+            ]"
+            :data-branch="n.branch"
+            :style="{ left: `${pos(n.branch).x}px`, top: `${pos(n.branch).y}px`, width: `${nodeW}px`, height: `${nodeH}px` }"
+            role="button"
+            tabindex="0"
+            @click="toggle(n.branch)"
+            @keydown.enter.prevent="toggle(n.branch)"
+          >
+            <div class="line">
+              <span class="dot" />
+              <strong class="mono clip" :title="n.branch">{{ n.branch }}</strong>
+              <span v-if="n.isDefault" class="badge">default</span>
+            </div>
+            <div class="line">
+              <PrChip v-if="n.pr" :pr="n.pr" />
+              <span v-else-if="!n.isDefault" class="muted">no PR</span>
+            </div>
+            <div v-if="!n.isDefault" class="line muted small">
+              <span class="mono">↑{{ n.ahead }} ↓{{ n.behind }}</span>
+              <span>· {{ ago(n.date) }}</span>
+              <span v-if="n.worktree" class="clip">· {{ n.worktree.name }}</span>
+            </div>
           </div>
         </div>
       </div>

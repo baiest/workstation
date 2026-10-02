@@ -5,7 +5,9 @@ import BranchGraph from './components/BranchGraph.vue'
 import PlanModal from './components/PlanModal.vue'
 import WorktreeCard from './components/WorktreeCard.vue'
 import { matchesFilter, relativeTime, statusLabel } from './format'
+import { browserStorage, loadHidden, saveHidden, toggleHidden } from './hidden'
 import type { BranchesResponse, Pr, Repo, WorkspaceData } from './types'
+import { FONT_DEFAULT, clampFontSize, nextFontSize } from './zoom'
 
 type Tab = 'worktrees' | 'branches'
 interface BranchState {
@@ -27,6 +29,44 @@ const filterEl = ref<HTMLInputElement | null>(null)
 const planFor = ref<{ id: string; title: string } | null>(null)
 const tabs = reactive<Record<string, Tab>>(loadTabs())
 const branchState = reactive<Record<string, BranchState>>({})
+
+// Projects the user hid, remembered per browser.
+const store = browserStorage()
+const hidden = ref<string[]>(loadHidden(store))
+const isHidden = (r: Repo) => hidden.value.includes(r.path)
+const hiddenRepos = computed(() => (data.value?.repos ?? []).filter(isHidden))
+
+function toggleRepo(repo: Repo) {
+  hidden.value = toggleHidden(hidden.value, repo.path)
+  saveHidden(store, hidden.value)
+  if (!isHidden(repo) && !branchState[repo.path]?.data) loadBranches(repo) // just shown again
+}
+
+// UI size: the root font size in px, remembered per browser. Everything is in rem.
+const UI_KEY = 'workstation.ui-px'
+const uiPx = ref(loadUiPx())
+
+function loadUiPx(): number {
+  try {
+    return clampFontSize(parseInt(localStorage.getItem(UI_KEY) ?? '', 10))
+  } catch {
+    return FONT_DEFAULT
+  }
+}
+
+function applyUiPx() {
+  document.documentElement.style.fontSize = `${uiPx.value}px`
+}
+
+function bumpUi(dir: 1 | -1) {
+  uiPx.value = nextFontSize(uiPx.value, dir)
+  applyUiPx()
+  try {
+    localStorage.setItem(UI_KEY, String(uiPx.value))
+  } catch {
+    // ignore: remembering the size is a convenience
+  }
+}
 
 function loadTabs(): Record<string, Tab> {
   try {
@@ -80,8 +120,11 @@ async function refresh() {
   } finally {
     loading.value = false
   }
-  // PRs load in the background (network); the worktree view never waits for them
-  for (const repo of data.value?.repos ?? []) loadBranches(repo, hadBranches.includes(repo.path))
+  // PRs load in the background (network); the worktree view never waits for them.
+  // Hidden projects are skipped: no point spending API calls on what is not shown.
+  for (const repo of data.value?.repos ?? []) {
+    if (!isHidden(repo)) loadBranches(repo, hadBranches.includes(repo.path))
+  }
 }
 
 async function act(action: Action, body: { path?: string; sessionId?: string }) {
@@ -98,6 +141,7 @@ const prFor = (repo: Repo, branch?: string): Pr | undefined =>
 
 const repos = computed(() =>
   (data.value?.repos ?? [])
+    .filter((r) => !isHidden(r))
     .map((r) => ({ ...r, all: r.worktrees, worktrees: r.worktrees.filter((w) => matchesFilter(w, r.name, query.value)) }))
     .filter((r) => r.worktrees.length > 0 || tabOf(r) === 'branches'),
 )
@@ -117,6 +161,7 @@ function onKey(e: KeyboardEvent) {
 }
 
 onMounted(() => {
+  applyUiPx()
   refresh()
   window.addEventListener('keydown', onKey)
 })
@@ -128,6 +173,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
     <h1>workstation</h1>
     <input ref="filterEl" v-model="query" class="filter" placeholder="Filter worktrees   ( / )" spellcheck="false" />
     <span v-if="data" class="muted stamp">updated {{ relativeTime(data.generatedAt) }}</span>
+    <span class="size-controls" role="group" aria-label="UI size">
+      <button title="Smaller UI" @click="bumpUi(-1)">A−</button>
+      <button title="Larger UI" @click="bumpUi(1)">A+</button>
+    </span>
     <button class="primary" :disabled="loading" @click="refresh">{{ loading ? 'Refreshing…' : 'Refresh' }}</button>
   </header>
 
@@ -148,6 +197,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
             <span v-if="branchState[repo.path]?.data" class="count">{{ branchState[repo.path].data!.graph.nodes.length }}</span>
           </button>
         </span>
+        <button class="link hide-btn" title="Hide this project (you can show it again below)" @click="toggleRepo(repo)">Hide</button>
       </h2>
 
       <div v-if="tabOf(repo) === 'worktrees'" class="grid">
@@ -177,6 +227,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
             :graph="branchState[repo.path].data!.graph"
             :worktrees="repo.all"
             :editor="data!.capabilities.editor"
+            :rem="uiPx"
             @terminal="(p) => act('terminal', { path: p })"
             @editor="(p) => act('editor', { path: p })"
             @resume="(id) => act('resume', { sessionId: id })"
@@ -187,8 +238,25 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
     </section>
 
     <p v-if="data && !repos.length" class="muted">
-      {{ query ? 'No worktrees match the filter.' : 'No repositories found. Add some to ~/.workstation.json.' }}
+      {{
+        query
+          ? 'No worktrees match the filter.'
+          : hiddenRepos.length
+            ? 'All projects are hidden. Show them again from the list below.'
+            : 'No repositories found. Add some to ~/.workstation.json.'
+      }}
     </p>
+
+    <details v-if="hiddenRepos.length" class="unlinked hidden-repos">
+      <summary>Hidden projects ({{ hiddenRepos.length }})</summary>
+      <ul>
+        <li v-for="r in hiddenRepos" :key="r.path">
+          <span class="clip">{{ r.name }}</span>
+          <span class="muted mono clip" :title="r.path"><bdi>{{ r.path }}</bdi></span>
+          <button class="link" @click="toggleRepo(r)">Show</button>
+        </li>
+      </ul>
+    </details>
 
     <details v-if="data?.unlinked.length" class="unlinked">
       <summary>Unlinked sessions ({{ data.unlinked.length }})</summary>

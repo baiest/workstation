@@ -111,6 +111,115 @@ describe('BranchGraph', () => {
     expect(w.find('.detail [data-action=terminal]').exists()).toBe(false)
   })
 
+  describe('zoom', () => {
+    const scaleOf = (w: ReturnType<typeof render>) => w.get('.graph').attributes('style')
+    it('starts at 100% and zooms with the buttons', async () => {
+      const w = render()
+      expect(w.get('[data-zoom=label]').text()).toBe('100%')
+      expect(scaleOf(w)).toContain('scale(1)')
+
+      await w.get('[data-zoom=in]').trigger('click')
+      expect(w.get('[data-zoom=label]').text()).toBe('110%')
+      expect(scaleOf(w)).toContain('scale(1.1)')
+
+      await w.get('[data-zoom=out]').trigger('click')
+      await w.get('[data-zoom=out]').trigger('click')
+      expect(w.get('[data-zoom=label]').text()).toBe('90%')
+    })
+
+    it('stops at the limits and resets', async () => {
+      const w = render()
+      for (let i = 0; i < 40; i++) await w.get('[data-zoom=out]').trigger('click')
+      expect(w.get('[data-zoom=label]').text()).toBe('30%')
+      for (let i = 0; i < 40; i++) await w.get('[data-zoom=in]').trigger('click')
+      expect(w.get('[data-zoom=label]').text()).toBe('200%')
+      await w.get('[data-zoom=reset]').trigger('click')
+      expect(w.get('[data-zoom=label]').text()).toBe('100%')
+    })
+
+    it('zooms with ctrl + wheel and ignores a plain wheel', async () => {
+      const w = render()
+      const el = w.get('.graph-scroll').element
+      const wheel = async (deltaY: number, ctrlKey: boolean) => {
+        const ev = new WheelEvent('wheel', { deltaY, ctrlKey, bubbles: true, cancelable: true })
+        el.dispatchEvent(ev)
+        await w.vm.$nextTick()
+        return ev
+      }
+
+      const zoomed = await wheel(-100, true)
+      expect(w.get('[data-zoom=label]').text()).toBe('110%')
+      expect(zoomed.defaultPrevented).toBe(true) // the browser must not zoom the whole page too
+      await wheel(100, true)
+      expect(w.get('[data-zoom=label]').text()).toBe('100%')
+      const plain = await wheel(-100, false)
+      expect(w.get('[data-zoom=label]').text()).toBe('100%')
+      expect(plain.defaultPrevented).toBe(false) // a plain wheel keeps scrolling the graph
+    })
+
+    it('keeps the scrollable area in step with the zoom', async () => {
+      const w = render()
+      const before = w.get('.graph-zoom').attributes('style')
+      await w.get('[data-zoom=in]').trigger('click')
+      expect(w.get('.graph-zoom').attributes('style')).not.toBe(before)
+    })
+  })
+
+  describe('search', () => {
+    it('highlights matches and dims the rest', async () => {
+      const w = render()
+      await w.get('[data-search]').setValue('feat-b')
+      expect(w.get('[data-branch="feat-b"]').classes()).toContain('match')
+      expect(w.get('[data-branch="feat-a"]').classes()).toContain('dim')
+      expect(w.get('[data-branch="main"]').classes()).toContain('dim')
+      expect(w.get('[data-search-count]').text()).toBe('1 match')
+    })
+
+    it('finds a branch by PR number', async () => {
+      const w = render()
+      await w.get('[data-search]').setValue('#6')
+      expect(w.findAll('.gnode.match').map((n) => n.attributes('data-branch'))).toEqual(['feat-b'])
+    })
+
+    it('says when nothing matches and clears with the button', async () => {
+      const w = render()
+      await w.get('[data-search]').setValue('zzz')
+      expect(w.get('[data-search-count]').text()).toBe('no matches')
+      expect(w.findAll('.gnode.dim')).toHaveLength(4)
+
+      await w.get('[data-search-clear]').trigger('click')
+      expect(w.findAll('.gnode.dim')).toHaveLength(0)
+      expect((w.get('[data-search]').element as HTMLInputElement).value).toBe('')
+    })
+
+    it('Enter selects the next match, cycling', async () => {
+      const w = render()
+      await w.get('[data-search]').setValue('feat')
+      expect(w.get('[data-search-count]').text()).toBe('2 matches')
+
+      await w.get('[data-search]').trigger('keydown', { key: 'Enter' })
+      expect(w.get('.detail h3').text()).toBe('feat-a')
+      await w.get('[data-search]').trigger('keydown', { key: 'Enter' })
+      expect(w.get('.detail h3').text()).toBe('feat-b')
+      await w.get('[data-search]').trigger('keydown', { key: 'Enter' })
+      expect(w.get('.detail h3').text()).toBe('feat-a')
+    })
+
+    it('Escape clears the search', async () => {
+      const w = render()
+      await w.get('[data-search]').setValue('feat')
+      await w.get('[data-search]').trigger('keydown', { key: 'Escape' })
+      expect(w.findAll('.gnode.dim')).toHaveLength(0)
+    })
+  })
+
+  it('sizes nodes from the rem prop so the UI size control applies to the graph', () => {
+    const small = render({ rem: 16 })
+    const big = render({ rem: 24 })
+    const widthOf = (w: ReturnType<typeof render>) => parseFloat(w.get('[data-branch="main"]').attributes('style')!.match(/width: ([\d.]+)px/)![1])
+    expect(widthOf(big)).toBeGreaterThan(widthOf(small))
+  })
+
   it('closes the detail panel when the same node is clicked again', async () => {
     const w = render()
     await w.get('[data-branch="old"]').trigger('click')

@@ -1,4 +1,4 @@
-import type { ClaudeStatus, GitInfo, Pr, Worktree } from './types'
+import type { BranchNode, ClaudeStatus, GitInfo, Pr, Worktree } from './types'
 
 export function relativeTime(iso: string, now: Date = new Date()): string {
   const t = Date.parse(iso)
@@ -56,10 +56,32 @@ export function prTone(pr: Pr): PrTone {
   return pr.state
 }
 
+/**
+ * Returns the URL only if it is an absolute http(s) link. PR links come from
+ * remote APIs; a javascript: or data: URL must never become an href.
+ */
+export function safeHref(url?: string): string | undefined {
+  if (!url) return undefined
+  try {
+    const u = new URL(url.trim())
+    return u.protocol === 'https:' || u.protocol === 'http:' ? u.href : undefined
+  } catch {
+    return undefined
+  }
+}
+
 /** True when the date is more than 30 days before now (unparseable dates are not stale). */
 export function isStale(iso: string, now: Date = new Date()): boolean {
   const t = Date.parse(iso)
   return !Number.isNaN(t) && now.getTime() - t > 30 * 24 * 3600 * 1000
+}
+
+/** Graph search: branch name, worktree name, PR title or PR number ("#114" or "114"). */
+export function matchNode(n: BranchNode, query: string): boolean {
+  const q = query.trim().toLowerCase()
+  if (!q) return false
+  const haystack = [n.branch, n.worktree?.name ?? '', n.pr?.title ?? '', n.pr ? `#${n.pr.number}` : '']
+  return haystack.some((h) => h.toLowerCase().includes(q))
 }
 
 export function matchesFilter(wt: Worktree, repoName: string, query: string): boolean {

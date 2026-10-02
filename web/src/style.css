@@ -121,7 +121,21 @@ section h2 .path { font-weight: 400; text-transform: none; letter-spacing: 0; }
 .swatch { display: inline-block; width: 1.6rem; height: 0; border-top: 2px solid var(--muted); vertical-align: middle; margin-right: 0.35rem; }
 .swatch.dashed { border-top-style: dashed; }
 .graph-scroll { overflow: auto; padding: 0.4rem 0.15rem 0.7rem; border: 1px solid var(--border); border-radius: 0.55rem; background: var(--panel); }
-.graph { position: relative; margin: 0.8rem; }
+.graph-zoom { position: relative; margin: 0.8rem; }
+.graph { position: absolute; top: 0; left: 0; }
+
+/* graph toolbar: search + zoom */
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.6rem 1rem; }
+.search { display: flex; align-items: center; gap: 0.5rem; flex: 1; min-width: 14rem; max-width: 30rem; }
+.search input { flex: 1; min-width: 0; font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 0.4rem; padding: 0.32rem 0.7rem; }
+.search input:focus { outline: none; border-color: var(--accent); }
+.search [data-search-count] { font-size: 0.85rem; white-space: nowrap; }
+.zoom { display: flex; align-items: center; gap: 0.3rem; }
+.zoom-label { min-width: 3.2rem; text-align: center; font-variant-numeric: tabular-nums; }
+.zoom button { min-width: 2rem; }
+.gnode.dim { opacity: 0.22; }
+.gnode.match { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+.size-controls { display: flex; gap: 0.25rem; }
 .edges { position: absolute; inset: 0; pointer-events: none; }
 .edge { fill: none; stroke: var(--muted); stroke-width: 2; }
 .edge.inferred { stroke-dasharray: 6 5; }
@@ -160,3 +174,6 @@ section h2 .path { font-weight: 400; text-transform: none; letter-spacing: 0; }
 .markdown th, .markdown td { border: 1px solid var(--border); padding: 0.3rem 0.75rem; text-align: left; }
 .markdown a { color: var(--accent); }
 .markdown blockquote { margin: 0.6rem 0; padding-left: 0.9rem; border-left: 0.2rem solid var(--border); color: var(--muted); }
+
+.hide-btn { margin-left: 0.4rem; text-transform: none; letter-spacing: 0; color: var(--muted); }
+.hide-btn:hover { color: var(--accent); }

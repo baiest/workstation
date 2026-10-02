@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { gitSummary, isStale, matchesFilter, prLabel, prTone, relativeTime, statusLabel } from './format'
-import type { GitInfo, Pr, Worktree } from './types'
+import { gitSummary, isStale, matchesFilter, matchNode, prLabel, prTone, relativeTime, safeHref, statusLabel } from './format'
+import type { BranchNode, GitInfo, Pr, Worktree } from './types'
 
 const now = new Date('2026-10-02T12:00:00Z')
 
@@ -84,6 +84,51 @@ describe('prTone', () => {
     expect(prTone(pr({ draft: true }))).toBe('draft')
     expect(prTone(pr({ state: 'merged' }))).toBe('merged')
     expect(prTone(pr({ state: 'declined' }))).toBe('declined')
+  })
+})
+
+describe('safeHref', () => {
+  it('keeps only absolute http(s) links', () => {
+    expect(safeHref('https://github.com/o/r/pull/1')).toBe('https://github.com/o/r/pull/1')
+    expect(safeHref('http://bb.local/pull/2')).toBe('http://bb.local/pull/2')
+  })
+
+  it.each([
+    'javascript:alert(1)',
+    ' JaVaScRiPt:alert(1)',
+    'jav\tascript:alert(1)',
+    'data:text/html,<script>alert(1)</script>',
+    'vbscript:x',
+    '//evil.example/x',
+    '/relative',
+    'not a url',
+    '',
+    undefined,
+  ])('drops %s', (u) => {
+    expect(safeHref(u)).toBeUndefined()
+  })
+})
+
+describe('matchNode', () => {
+  const node = {
+    branch: 'LOY-67-fix-rate-limit', isDefault: false, merged: false, ahead: 1, behind: 0, tip: 'a', date: '2026-10-01T00:00:00Z',
+    worktree: { name: 'rate-limit-wt', path: '/w' },
+    pr: pr({ number: 114, title: 'Block scanner probes' }),
+  } as BranchNode
+
+  it('matches branch, worktree, PR title and PR number, ignoring case', () => {
+    for (const q of ['loy-67', 'RATE-LIMIT', 'scanner', '#114', '114']) expect(matchNode(node, q)).toBe(true)
+  })
+
+  it('does not match unrelated text or an empty query', () => {
+    expect(matchNode(node, 'nothing-here')).toBe(false)
+    expect(matchNode(node, '   ')).toBe(false)
+  })
+
+  it('works for a branch without PR or worktree', () => {
+    const bare = { ...node, worktree: undefined, pr: undefined } as BranchNode
+    expect(matchNode(bare, 'loy')).toBe(true)
+    expect(matchNode(bare, '#114')).toBe(false)
   })
 })
 

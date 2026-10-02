@@ -102,6 +102,17 @@ describe('WorktreeCard', () => {
     expect(w.get('a[href="https://x/pull/120"]').attributes('target')).toBe('_blank')
   })
 
+  it('does not make a link out of a hostile PR url', () => {
+    const pr = {
+      number: 9, title: 't', url: 'javascript:alert(1)', source: 'a', dest: 'main', state: 'open' as const,
+      draft: false, approvals: 0, changesRequested: 0, updatedAt: '2026-10-01T00:00:00Z',
+    }
+    const w = mount(WorktreeCard, { props: { worktree: worktree(), editor: 'cursor', now, pr } })
+    expect(w.text()).toContain('#9 Open')
+    expect(w.html()).not.toContain('javascript:')
+    expect(w.find('a.pr').attributes('href')).toBeUndefined()
+  })
+
   it('resumes the newest resumable session, skipping non-resumable ones', async () => {
     const wt = worktree({ sessions: [session({ id: 'new', resumable: false }), session({ id: 'old' })] })
     const w = render(wt)
