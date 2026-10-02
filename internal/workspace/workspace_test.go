@@ -178,9 +178,19 @@ func sessionIDs(ss []claude.Session) []string {
 }
 
 func TestNormalize(t *testing.T) {
-	a := normalize(`C:\Users\Me\Repo\`)
-	b := normalize(`c:\users\me\repo`)
-	if a != b && isCaseInsensitiveOS() {
-		t.Fatalf("expected case-insensitive match: %q vs %q", a, b)
+	sep := string(filepath.Separator)
+	base := sep + filepath.Join("Users", "Me", "Repo")
+
+	if normalize(base+sep) != normalize(base) {
+		t.Errorf("a trailing separator must not matter: %q vs %q", normalize(base+sep), normalize(base))
+	}
+	if normalize(filepath.Join(base, "pkg", "..")) != normalize(base) {
+		t.Errorf("paths must be cleaned")
+	}
+
+	lower := sep + filepath.Join("users", "me", "repo")
+	same := normalize(lower) == normalize(base)
+	if same != isCaseInsensitiveOS() {
+		t.Errorf("case-insensitive match = %v, want %v on this OS", same, isCaseInsensitiveOS())
 	}
 }
