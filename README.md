@@ -16,7 +16,11 @@ ahead / behind), last commit, and the linked Claude session (status, last activi
 - **Worktrees** — every worktree of every repo, with its Claude session and PR status.
 - **Plan button** — read the plan a Claude session produced, rendered as Markdown.
 - **Branch graph** — the active branches of a repo as a tree: which depends on which, with PR status
-  (open / draft / merged / declined), approvals, review state and checks.
+  (open / draft / merged / declined), approvals, review state and checks. Zoom (buttons, **Ctrl + wheel**, *Fit*) and
+  search (branch, worktree, PR title or `#number`; **Enter** jumps to the next match).
+- **Hide projects** you do not care about (**Hide** next to the project name; restore them from "Hidden projects").
+  Remembered in the browser; hidden projects are not queried for PRs.
+- **UI size** with **A−** / **A+** in the header (also browser zoom).
 - **Pull requests** from GitHub, Bitbucket Cloud and Bitbucket Server / Data Center.
 - **Actions** — open a worktree in a terminal or Cursor / VS Code, or resume its Claude session.
 
@@ -44,7 +48,8 @@ xattr -d com.apple.quarantine ./workstation
 
 ### Option 2: build from source
 
-Requirements: Go >= 1.25, Node 22, pnpm 10, `git`. On macOS: `brew install go node pnpm`.
+Requirements: Go 1.25.14 or newer (older 1.25 patches have known standard-library vulnerabilities; Go downloads the
+right toolchain automatically), Node 22, pnpm 10, `git`. On macOS: `brew install go node pnpm`.
 
 ```sh
 git clone https://github.com/baiest/workstation.git
@@ -62,9 +67,8 @@ Without `make` (Windows), run the commands from the [Makefile](Makefile): `pnpm 
 
 ```sh
 workstation                                   # http://127.0.0.1:7420
-workstation -addr 127.0.0.1:8000              # another port
+workstation -addr 127.0.0.1:8000              # another port (loopback addresses only)
 workstation -config ~/.workstation.json       # config file (optional)
-workstation -lan                              # reachable from your local network, see below
 workstation -version
 ```
 
@@ -95,15 +99,18 @@ A launch agent starts it at login. `launchd` has a minimal `PATH`, so list where
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.workstation.plist
 ```
 
-### Reaching it from another device: `-lan`
+### Not reachable from the network
 
-```sh
-workstation -lan        # listens on 0.0.0.0:7420; accepts Host headers that are private IPs
-```
+The server only listens on loopback and **refuses** any other `-addr` (`0.0.0.0`, an empty host, a LAN address). It
+has no authentication and its buttons start processes on your machine, so it is deliberately not exposed. To use it
+from another device, tunnel to it (for example `ssh -L 7420:127.0.0.1:7420 your-machine`).
 
-Without `-lan` only loopback is served. With it, anyone on your network can read paths, branches and session
-text, and the Terminal / Editor / Resume buttons start processes on **this** machine. There is no authentication,
-so use it only on a network you trust. The OS firewall must allow the port.
+### Logs
+
+Operational problems are written to **stderr** (startup, and the real cause of any internal error, which the browser
+only sees as "internal error"). Nothing is written to a file: run it in a terminal, or redirect it
+(`workstation 2>> workstation.log`). If you start it hidden or as a service, the output is discarded unless you
+redirect it.
 
 ### Optional config: `~/.workstation.json`
 
@@ -200,6 +207,10 @@ If a lookup fails, the graph is still drawn from Git and a warning is shown. The
 | `bitbucket.org` | REST v2 `/2.0/repositories/{workspace}/{repo}/pullrequests` | `BITBUCKET_USER` (account email) + `BITBUCKET_TOKEN` (API token) env vars; without a user, the token is sent as a Bearer access token |
 | other host in `forges` | Bitbucket Server / DC REST `/rest/api/1.0/projects/{P}/repos/{r}/pull-requests` | the env var named by `tokenEnv` (HTTP access token) |
 
+Credential environment variables must be upper case and start with `BITBUCKET_`, `BB_`, `ATLASSIAN_` or
+`WORKSTATION_`, so a tampered config cannot make the app read an unrelated secret. `baseUrl` must be `https` and on the
+same host as the forge entry. API responses are capped at 8 MiB and PR links are kept only if they are `http(s)`.
+
 Unknown hosts and repos without `origin` are silently skipped. Reported per PR: state, draft, number, title, link,
 approvals, changes requested, review state, checks.
 
@@ -249,13 +260,26 @@ listed worktree. Several sessions in one worktree are all kept; the newest is sh
 
 ## Actions and security
 
-Open terminal / editor / resume launch local processes, so the server is locked down:
+Open terminal / editor / resume launch local processes, so the server is locked down. See [SECURITY.md](SECURITY.md)
+for the threat model and how to report a problem.
 
-- Binds to `127.0.0.1`; requests whose `Host` is not loopback are rejected (DNS rebinding). `-lan` also accepts private IPs.
-- If `Origin` is sent it must match `Host`; POSTs must be `application/json` (no cross-site simple requests).
-- Actions only accept worktree paths and session ids present in the last computed workspace; session ids must match `[A-Za-z0-9_-]+`.
-- Terminal: Windows `cmd /c start … powershell -NoExit` / macOS `open -a Terminal`. Editor: `cursor`, else `code`, if on PATH (button hidden otherwise).
-  Resume: a terminal in the session's directory running `claude --resume <id>`.
+- Loopback only: it refuses to start on any other address, and requests whose `Host` is not loopback are rejected
+  (DNS rebinding). `Sec-Fetch-Site` must be same-origin or none; if `Origin` is sent it must match `Host`; POSTs must be
+  `application/json`.
+- Every response carries a CSP (`script-src 'self'`, `frame-ancestors 'none'`), `X-Frame-Options: DENY`, `nosniff`,
+  `Referrer-Policy: no-referrer`.
+- Actions only accept worktree paths and session ids present in the last computed workspace; session ids must match
+  `[A-Za-z0-9_-]+`; the directory must exist, be absolute and contain no control characters.
+- Terminal: Windows starts `powershell.exe -NoExit` in a new console with the directory as its **working directory**
+  (never through `cmd.exe`, which would re-parse `&`, `%`, `^` in a path); macOS `open -a Terminal` / `osascript` with
+  the path quoted. Editor: `cursor`, else `code`, if on PATH (button hidden otherwise); a `.cmd` shim refuses paths
+  containing `& | < > ^ % " !`. Resume: a terminal in the session's directory running `claude --resume <id>`.
+- git runs with `core.fsmonitor`, hooks and the pager disabled (a repo's own config can name commands), a 30 s timeout
+  that kills the whole process tree, and branch names always qualified as `refs/heads/...`. `gh` has a 25 s timeout.
+- Local files are read with size limits (1 MiB for JSON, 1 MiB per transcript line), and a symlink in `plans/` is
+  not served as a plan.
+- **Accepted risk: no authentication.** Any process or user on the same machine can read the data and press the
+  buttons. Use it on a machine and account you trust.
 
 ## Development
 

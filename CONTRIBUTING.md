@@ -23,9 +23,14 @@ On Windows without `make`, run the underlying commands from the `Makefile` direc
   `ClaudeSessionProvider`. Do not leak those formats elsewhere, and do not invent a status you cannot determine
   reliably: `unknown` is a valid answer.
 - **Use the git CLI.** Parse its porcelain output; do not read `.git` internals.
-- **Never put secrets in the config file.** It names environment variables, nothing more.
+- **Never put secrets in the config file.** It names environment variables (with an allowed prefix), nothing more.
 - **Be careful with anything that launches a process.** Actions only accept values present in the last computed
-  workspace; keep it that way (see `internal/server`).
+  workspace; keep it that way (see `internal/server`). Paths and branch names come from git and transcripts, so
+  treat them as hostile: never build a shell command line from them (Windows: no `cmd.exe`).
+- **Do not expose the server.** It has no authentication and refuses non-loopback addresses on purpose; do not add a
+  "listen on the network" option.
+- **Run git and gh through `gitx` / `forge.runCommand`** so they get the hardening flags and timeouts.
+- Security reports: see [SECURITY.md](SECURITY.md). `make test lint` plus `govulncheck ./...` should pass.
 - Bitbucket support is built from documented API shapes and fixtures. If you have a real instance, fixes to
   `internal/forge/bitbucket.go` with a recorded fixture are very welcome.
 
