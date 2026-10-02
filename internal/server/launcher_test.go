@@ -94,7 +94,11 @@ func TestStartInHostileDirectoryOnWindows(t *testing.T) {
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
 		if data, err := os.ReadFile(where); err == nil && len(data) > 0 {
-			if got := strings.TrimSpace(string(data)); !strings.EqualFold(got, hostile) {
+			got := strings.TrimSpace(string(data))
+			// compare identity, not text: Windows may report the same directory in its 8.3 short form
+			gotInfo, err1 := os.Stat(got)
+			wantInfo, err2 := os.Stat(hostile)
+			if err1 != nil || err2 != nil || !os.SameFile(gotInfo, wantInfo) {
 				t.Fatalf("working directory = %q, want %q", got, hostile)
 			}
 			if _, err := os.Stat(injected); err == nil {
