@@ -63,6 +63,50 @@ func TestServiceAttachesPRsAndCaches(t *testing.T) {
 	}
 }
 
+// The graph from git alone must not wait for the network: it is what the page
+// shows first while the pull requests load.
+func TestServiceGraphWithoutPRsNeverCallsTheForge(t *testing.T) {
+	t.Parallel()
+	repo := newRepo(t)
+	now := time.Now()
+	fp := &fakeProvider{prs: []forge.PR{{Number: 5, Source: "feat-a", Dest: "main", State: forge.StateOpen}}}
+	s := newService(fp, nil, &now)
+
+	r, err := s.GraphWithoutPRs(repo, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fp.calls != 0 {
+		t.Fatalf("the forge was called %d times", fp.calls)
+	}
+	if !r.PRsPending || len(r.Graph.Nodes) < 3 {
+		t.Fatalf("expected the git graph with PRs pending: %+v", r)
+	}
+	if a := nodeMap(r.Graph)["feat-a"]; a.PR != nil || a.Parent != "feat-a" && a.Parent != "main" {
+		t.Fatalf("feat-a has no PR yet: %+v", a)
+	}
+}
+
+func TestServiceGraphWithoutPRsUsesWhatIsAlreadyCached(t *testing.T) {
+	t.Parallel()
+	repo := newRepo(t)
+	now := time.Now()
+	fp := &fakeProvider{prs: []forge.PR{{Number: 5, Source: "feat-a", Dest: "main", State: forge.StateOpen}}}
+	s := newService(fp, nil, &now)
+
+	if _, err := s.Graph(repo, nil, false, false); err != nil || fp.calls != 1 {
+		t.Fatalf("warm the cache: calls=%d err=%v", fp.calls, err)
+	}
+	now = now.Add(10 * time.Minute) // long expired; still better than nothing for a first paint
+	r, err := s.GraphWithoutPRs(repo, nil, false)
+	if err != nil || fp.calls != 1 {
+		t.Fatalf("must not refetch: calls=%d err=%v", fp.calls, err)
+	}
+	if a := nodeMap(r.Graph)["feat-a"]; a.PR == nil || a.PR.Number != 5 || r.PRsPending {
+		t.Fatalf("cached PRs should be used and not pending: %+v pending=%v", a, r.PRsPending)
+	}
+}
+
 func TestServiceProviderErrorIsWarningNotFailure(t *testing.T) {
 	t.Parallel()
 	repo := newRepo(t)

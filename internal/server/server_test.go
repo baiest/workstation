@@ -408,12 +408,21 @@ type fakeBranches struct {
 	repo          string
 	wts           map[string]branches.Worktree
 	merged, fresh bool
+	fast          int // calls to GraphWithoutPRs
+	full          int // calls to Graph
 	err           error
 }
 
 func (f *fakeBranches) Graph(repo string, wts map[string]branches.Worktree, merged, fresh bool) (branches.Response, error) {
 	f.repo, f.wts, f.merged, f.fresh = repo, wts, merged, fresh
+	f.full++
 	return branches.Response{Graph: branches.Graph{Default: "main", Nodes: []branches.Node{{Branch: "main", IsDefault: true}}}, Warnings: []string{}}, f.err
+}
+
+func (f *fakeBranches) GraphWithoutPRs(repo string, wts map[string]branches.Worktree, merged bool) (branches.Response, error) {
+	f.repo, f.wts, f.merged = repo, wts, merged
+	f.fast++
+	return branches.Response{Graph: branches.Graph{Default: "main", Nodes: []branches.Node{{Branch: "main", IsDefault: true}}}, Warnings: []string{}, PRsPending: true}, f.err
 }
 
 func newServerWith(t *testing.T, opts ...Option) (http.Handler, string) {
@@ -454,6 +463,31 @@ func TestPlanEndpoint(t *testing.T) {
 	none, _ := newServerWith(t)
 	if rec := do(none, http.MethodGet, "/api/plan?session=sess-1", "", nil); rec.Code != 404 {
 		t.Errorf("no plan reader configured must be 404, got %d", rec.Code)
+	}
+}
+
+// prs=0 asks for the graph from git alone, so the page can paint before the
+// forge answers.
+func TestBranchesEndpointCanSkipPullRequests(t *testing.T) {
+	fb := &fakeBranches{}
+	h, dir := newServerWith(t, WithBranches(fb))
+
+	rec := do(h, http.MethodGet, "/api/branches?repo=/r&prs=0&merged=1", "", nil)
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"prsPending":true`) {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+	if fb.fast != 1 || fb.full != 0 || !fb.merged {
+		t.Fatalf("prs=0 must use the git-only path: %+v", fb)
+	}
+	if w, ok := fb.wts["feat"]; !ok || w.Path != dir {
+		t.Errorf("worktrees: %+v", fb.wts)
+	}
+
+	if rec := do(h, http.MethodGet, "/api/branches?repo=/r", "", nil); rec.Code != 200 || fb.full != 1 || fb.fast != 1 {
+		t.Fatalf("the default stays the full graph: %d %+v", rec.Code, fb)
+	}
+	if rec := do(h, http.MethodGet, "/api/branches?repo=/etc&prs=0", "", nil); rec.Code != 400 {
+		t.Errorf("repo outside the snapshot must be 400 here too, got %d", rec.Code)
 	}
 }
 

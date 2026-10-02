@@ -61,6 +61,19 @@ describe('BranchGraph', () => {
     expect(render().get('[data-branch="old"]').text()).toContain('no PR')
   })
 
+  it('shows a loading placeholder instead of "no PR" while pull requests load', () => {
+    const loading = render({ prsLoading: true })
+    expect(loading.get('[data-branch="old"]').text()).toContain('PR…')
+    expect(loading.get('[data-branch="old"]').text()).not.toContain('no PR')
+    expect(loading.get('[data-branch="old"]').classes()).toContain('pr-loading')
+    // nodes whose PR is already known keep showing it
+    expect(loading.get('[data-branch="feat-a"]').text()).toContain('#5 Open')
+
+    const loaded = render({ prsLoading: false })
+    expect(loaded.get('[data-branch="old"]').text()).toContain('no PR')
+    expect(loaded.get('[data-branch="old"]').classes()).not.toContain('pr-loading')
+  })
+
   it('marks merged and stale branches', () => {
     const w = render()
     expect(w.get('[data-branch="feat-b"]').classes()).toContain('merged')

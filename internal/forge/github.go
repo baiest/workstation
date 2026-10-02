@@ -46,6 +46,12 @@ type ghPR struct {
 }
 
 func (g *GitHub) PullRequests(context.Context) ([]PR, error) {
+	// The check status of open PRs is a separate, slow gh call that does not depend
+	// on the list: run both at once. The channel is buffered, so the goroutine
+	// finishes by itself if we return early on an error.
+	checksCh := make(chan map[int]string, 1)
+	go func() { checksCh <- g.openChecks() }()
+
 	out, err := g.Run(g.Dir, "pr", "list", "--state", "all", "--limit", "100", "--json", ghFields)
 	if err != nil {
 		return nil, fmt.Errorf("github (needs the gh CLI, logged in): %w", err)
@@ -54,7 +60,7 @@ func (g *GitHub) PullRequests(context.Context) ([]PR, error) {
 	if err := json.Unmarshal(out, &raw); err != nil {
 		return nil, fmt.Errorf("github: unexpected gh output: %w", err)
 	}
-	checks := g.openChecks()
+	checks := <-checksCh
 
 	prs := make([]PR, 0, len(raw))
 	for _, r := range raw {

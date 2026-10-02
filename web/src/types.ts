@@ -51,6 +51,8 @@ export interface BranchNode {
 export interface BranchesResponse {
   graph: { default: string; nodes: BranchNode[]; hidden: number }
   warnings: string[]
+  /** true when the graph came from git alone because no PR data was cached yet */
+  prsPending?: boolean
 }
 
 export interface CleanupCandidate {

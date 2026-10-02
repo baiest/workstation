@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -54,12 +55,15 @@ const ghJSON = `[
 ]`
 
 func TestGitHub(t *testing.T) {
+	var mu sync.Mutex
 	var calls []string
 	p := &GitHub{Dir: "/repo", Run: func(dir string, args ...string) ([]byte, error) {
 		if dir != "/repo" {
 			t.Errorf("gh must run in the repo dir, got %q", dir)
 		}
+		mu.Lock()
 		calls = append(calls, strings.Join(args, " "))
+		mu.Unlock()
 		return []byte(ghJSON), nil
 	}}
 
@@ -71,12 +75,19 @@ func TestGitHub(t *testing.T) {
 	if len(calls) != 2 {
 		t.Fatalf("expected 2 gh calls, got %v", calls)
 	}
-	all, open := calls[0], calls[1]
-	if !strings.HasPrefix(all, "pr list --state all") || strings.Contains(all, "statusCheckRollup") {
-		t.Errorf("first call must list all PRs without checks: %s", all)
+	var all, open string
+	for _, c := range calls { // the two calls run concurrently, so their order is not fixed
+		if strings.HasPrefix(c, "pr list --state all") {
+			all = c
+		} else if strings.HasPrefix(c, "pr list --state open") {
+			open = c
+		}
 	}
-	if !strings.HasPrefix(open, "pr list --state open") || !strings.Contains(open, "statusCheckRollup") {
-		t.Errorf("second call must fetch checks of open PRs: %s", open)
+	if all == "" || strings.Contains(all, "statusCheckRollup") {
+		t.Errorf("one call must list all PRs without checks: %v", calls)
+	}
+	if open == "" || !strings.Contains(open, "statusCheckRollup") {
+		t.Errorf("one call must fetch checks of open PRs: %v", calls)
 	}
 	if len(prs) != 4 {
 		t.Fatalf("got %d prs", len(prs))
@@ -100,11 +111,32 @@ func TestGitHub(t *testing.T) {
 	}
 }
 
-func TestGitHubChecksFailureIsNotFatal(t *testing.T) {
-	n := 0
+// The two gh calls are independent; running them one after the other doubles
+// the wait. Each call blocks until the other has started, so a sequential
+// implementation cannot finish.
+func TestGitHubCallsRunConcurrently(t *testing.T) {
+	var started sync.WaitGroup
+	started.Add(2)
+	release := make(chan struct{})
+	go func() { started.Wait(); close(release) }()
+
 	p := &GitHub{Run: func(string, ...string) ([]byte, error) {
-		n++
-		if n == 2 {
+		started.Done()
+		select {
+		case <-release:
+		case <-time.After(3 * time.Second):
+			return nil, errors.New("the other gh call never started: calls are sequential")
+		}
+		return []byte(ghJSON), nil
+	}}
+	if _, err := p.PullRequests(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestGitHubChecksFailureIsNotFatal(t *testing.T) {
+	p := &GitHub{Run: func(_ string, args ...string) ([]byte, error) {
+		if strings.Contains(strings.Join(args, " "), "--state open") { // the checks call
 			return nil, errors.New("rate limited")
 		}
 		return []byte(`[{"number":1,"title":"t","state":"OPEN","headRefName":"a","baseRefName":"main","reviewDecision":"","updatedAt":"2026-10-01T10:00:00Z","url":"u","latestReviews":[]}]`), nil

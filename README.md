@@ -224,9 +224,12 @@ merge date, so its last-update time is used instead.
 
 ### Pull requests
 
-PRs are fetched when the page loads (in the background) and cached for 60 s per repo; Refresh bypasses the cache.
-If a lookup fails, the graph is still drawn from Git and a warning is shown. The forge is chosen from the
-`origin` remote URL:
+The Branches tab loads in **two steps** so it never waits for the network: first the graph from Git alone
+(`GET /api/branches?prs=0`, no forge call), then the full graph with pull requests, which replaces it while the page
+shows "Loading pull requests…" (nodes without a known PR show `PR…` instead of "no PR"). Branches whose PR already
+merged (squash merges) only disappear from the graph once the second step arrives. PRs are cached for 60 s per repo;
+Refresh bypasses the cache. If the lookup fails, the graph stays as drawn from Git and a warning says why. The forge
+is chosen from the `origin` remote URL:
 
 | Host | How | Needs |
 |---|---|---|
@@ -282,8 +285,8 @@ listed worktree. Several sessions in one worktree are all kept; the newest is sh
 - Desktop-only sessions with no `cliSessionId` cannot be resumed from here.
 - Sessions of deleted worktrees cannot be resumed (`claude --resume` must run in the original directory).
 - Only the last 100 GitHub PRs are looked at: a PR older than that shows as "no PR".
-- The first load of the Branches data takes a few seconds on big repos (the GitHub call dominates); later loads
-  within a minute are served from the cache.
+- On a big repo the graph from Git appears in about a second and the pull requests a second or two later (the two
+  `gh` calls run in parallel); later loads within a minute are served from the cache.
 
 ## Actions and security
 

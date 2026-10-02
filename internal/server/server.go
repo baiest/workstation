@@ -52,6 +52,8 @@ type PlanReader interface {
 // BranchService builds a repo's branch graph (implemented by branches.Service).
 type BranchService interface {
 	Graph(repo string, wts map[string]branches.Worktree, includeMerged, refresh bool) (branches.Response, error)
+	// GraphWithoutPRs is the git-only graph: no network, so it answers fast.
+	GraphWithoutPRs(repo string, wts map[string]branches.Worktree, includeMerged bool) (branches.Response, error)
 }
 
 // WithPlans enables GET /api/plan.
@@ -280,7 +282,12 @@ func (s *Server) handleBranches(w http.ResponseWriter, r *http.Request) {
 	}
 
 	q := r.URL.Query()
-	resp, err := s.branches.Graph(repo.Path, worktreesByBranch(repo), q.Get("merged") == "1", q.Get("refresh") == "1")
+	var resp branches.Response
+	if q.Get("prs") == "0" { // first paint: git only, no waiting for the forge
+		resp, err = s.branches.GraphWithoutPRs(repo.Path, worktreesByBranch(repo), q.Get("merged") == "1")
+	} else {
+		resp, err = s.branches.Graph(repo.Path, worktreesByBranch(repo), q.Get("merged") == "1", q.Get("refresh") == "1")
+	}
 	if errors.Is(err, branches.ErrNoDefaultBranch) {
 		http.Error(w, branches.ErrNoDefaultBranch.Error(), http.StatusUnprocessableEntity)
 		return

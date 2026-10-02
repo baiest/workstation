@@ -13,8 +13,9 @@ const props = withDefaults(
     editor: string
     now?: Date
     rem?: number // root font size in px; node geometry follows it
+    prsLoading?: boolean // pull requests are still loading: "no PR" is not known yet
   }>(),
-  { now: () => new Date(), rem: undefined },
+  { now: () => new Date(), rem: undefined, prsLoading: false },
 )
 const emit = defineEmits<{
   terminal: [path: string]
@@ -173,6 +174,7 @@ function toggle(branch: string) {
                 stale: stale(n),
                 selected: selected === n.branch,
                 root: n.isDefault,
+                'pr-loading': prsLoading && !n.pr && !n.isDefault,
                 match: searching && matches.includes(n.branch),
                 dim: searching && !matches.includes(n.branch),
               },
@@ -191,7 +193,7 @@ function toggle(branch: string) {
             </div>
             <div class="line">
               <PrChip v-if="n.pr" :pr="n.pr" />
-              <span v-else-if="!n.isDefault" class="muted">no PR</span>
+              <span v-else-if="!n.isDefault" class="muted">{{ prsLoading ? 'PR…' : 'no PR' }}</span>
             </div>
             <div v-if="!n.isDefault" class="line muted small">
               <span class="mono">↑{{ n.ahead }} ↓{{ n.behind }}</span>

@@ -16,6 +16,9 @@ const prTimeout = 20 * time.Second
 type Response struct {
 	Graph    Graph    `json:"graph"`
 	Warnings []string `json:"warnings"`
+	// PRsPending is true when the graph was built without any pull request data
+	// because none was cached yet: a full request will bring them.
+	PRsPending bool `json:"prsPending"`
 }
 
 // Service builds graphs and caches the (network-bound) PR lookups per repo.
@@ -56,6 +59,27 @@ func (s *Service) Graph(repo string, wts map[string]Worktree, includeMerged, ref
 	resp := Response{Graph: g, Warnings: []string{}}
 	if warning != "" {
 		resp.Warnings = append(resp.Warnings, warning)
+	}
+	return resp, nil
+}
+
+// GraphWithoutPRs builds the graph from git alone, so it is as fast as git is.
+// It never touches the network: pull requests are used only if an earlier
+// request already cached them (however old), and otherwise PRsPending says a
+// full Graph call will bring them. The page paints this first and fills in the
+// pull requests when the full call returns.
+func (s *Service) GraphWithoutPRs(repo string, wts map[string]Worktree, includeMerged bool) (Response, error) {
+	s.mu.Lock()
+	c, hadCache := s.cache[repo]
+	s.mu.Unlock()
+
+	g, err := Build(repo, Input{Worktrees: wts, PRs: c.prs, IncludeMerged: includeMerged, Now: s.Now()})
+	if err != nil {
+		return Response{}, err
+	}
+	resp := Response{Graph: g, Warnings: []string{}, PRsPending: !hadCache}
+	if hadCache && c.warning != "" {
+		resp.Warnings = append(resp.Warnings, c.warning)
 	}
 	return resp, nil
 }

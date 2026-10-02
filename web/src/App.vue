@@ -5,18 +5,13 @@ import BranchGraph from './components/BranchGraph.vue'
 import CleanupModal from './components/CleanupModal.vue'
 import PlanModal from './components/PlanModal.vue'
 import WorktreeCard from './components/WorktreeCard.vue'
+import { loadBranchData, newBranchState, type BranchState } from './branchLoader'
 import { matchesFilter, relativeTime, statusLabel } from './format'
 import { browserStorage, loadHidden, saveHidden, toggleHidden } from './hidden'
-import type { BranchesResponse, Pr, Repo, WorkspaceData } from './types'
+import type { Pr, Repo, WorkspaceData } from './types'
 import { FONT_DEFAULT, clampFontSize, nextFontSize } from './zoom'
 
 type Tab = 'worktrees' | 'branches'
-interface BranchState {
-  loading: boolean
-  data?: BranchesResponse
-  error?: string
-  merged: boolean
-}
 
 const TAB_KEY = 'workstation.tabs'
 const UNLINKED_LIMIT = 50
@@ -89,18 +84,11 @@ function setTab(repo: Repo, tab: Tab) {
 
 const tabOf = (repo: Repo): Tab => tabs[repo.path] ?? 'worktrees'
 
-async function loadBranches(repo: Repo, refresh = false) {
-  const st = (branchState[repo.path] ??= { loading: false, merged: false })
-  if (st.loading) return
-  st.loading = true
-  try {
-    st.data = await fetchBranches(repo.path, { merged: st.merged, refresh })
-    st.error = ''
-  } catch (e) {
-    st.error = e instanceof Error ? e.message : String(e)
-  } finally {
-    st.loading = false
-  }
+// The graph from git appears first; pull requests fill in when they arrive.
+function loadBranches(repo: Repo, refresh = false) {
+  if (!branchState[repo.path]) branchState[repo.path] = newBranchState()
+  // go through the reactive proxy: the object returned by an assignment is the raw one, and mutating it would not update the page
+  return loadBranchData(branchState[repo.path], repo.path, refresh, fetchBranches)
 }
 
 function toggleMerged(repo: Repo) {
@@ -219,13 +207,21 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
       <div v-else class="branches">
         <p v-for="w in branchState[repo.path]?.data?.warnings ?? []" :key="w" class="banner warn">{{ w }}</p>
         <p v-if="branchState[repo.path]?.error" class="banner err">Could not load branches: {{ branchState[repo.path].error }}</p>
-        <p v-if="!branchState[repo.path]?.data && !branchState[repo.path]?.error" class="muted">Loading branches and pull requests…</p>
+        <p v-if="branchState[repo.path]?.prsError" class="banner warn">
+          Could not load pull requests (the graph is from git only): {{ branchState[repo.path].prsError }}
+        </p>
+        <p v-if="!branchState[repo.path]?.data && !branchState[repo.path]?.error" class="muted loading-line">
+          <i class="spinner" /> Loading branches…
+        </p>
         <template v-if="branchState[repo.path]?.data">
           <div class="branch-actions">
             <label class="toggle muted">
               <input type="checkbox" :checked="branchState[repo.path].merged" @change="toggleMerged(repo)" />
               Show recently merged (30 days)
             </label>
+            <span v-if="branchState[repo.path].prsLoading" class="muted loading-line" data-prs-loading>
+              <i class="spinner" /> Loading pull requests…
+            </span>
             <button data-cleanup title="Delete local branches whose PR was merged long ago (you review the list first)" @click="cleanupFor = repo">
               Clean up branches…
             </button>
@@ -235,6 +231,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
             :worktrees="repo.all"
             :editor="data!.capabilities.editor"
             :rem="uiPx"
+            :prs-loading="branchState[repo.path].prsLoading"
             @terminal="(p) => act('terminal', { path: p })"
             @editor="(p) => act('editor', { path: p })"
             @resume="(id) => act('resume', { sessionId: id })"

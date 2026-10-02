@@ -15,9 +15,12 @@ async function getJSON<T>(url: string): Promise<T> {
 export const fetchPlan = (sessionId: string) =>
   getJSON<PlanData>(`/api/plan?session=${encodeURIComponent(sessionId)}`)
 
-export const fetchBranches = (repo: string, opts: { merged?: boolean; refresh?: boolean } = {}) =>
+/** prs: false asks for the graph from git alone (fast, no network); the default includes pull requests. */
+export const fetchBranches = (repo: string, opts: { merged?: boolean; refresh?: boolean; prs?: boolean } = {}) =>
   getJSON<BranchesResponse>(
-    `/api/branches?repo=${encodeURIComponent(repo)}${opts.merged ? '&merged=1' : ''}${opts.refresh ? '&refresh=1' : ''}`,
+    `/api/branches?repo=${encodeURIComponent(repo)}${opts.merged ? '&merged=1' : ''}${opts.refresh ? '&refresh=1' : ''}${
+      opts.prs === false ? '&prs=0' : ''
+    }`,
   )
 
 /** Branches that could be deleted (merged PR, old enough). Changes nothing. */
