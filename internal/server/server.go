@@ -5,12 +5,15 @@ package server
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"sync"
+	"time"
 
 	"workstation/internal/branches"
 	"workstation/internal/claude"
@@ -26,15 +29,15 @@ type Server struct {
 	plans    PlanReader
 	branches BranchService
 
-	mu   sync.Mutex
-	last *workspace.Workspace // snapshot actions are validated against
+	mu     sync.Mutex
+	last   *workspace.Workspace // snapshot actions are validated against
+	flight *flight              // workspace build in progress, if any
 }
 
 // Option customises New.
 type Option func(*options)
 
 type options struct {
-	lan      bool
 	plans    PlanReader
 	branches BranchService
 }
@@ -55,10 +58,38 @@ func WithPlans(p PlanReader) Option { return func(o *options) { o.plans = p } }
 // WithBranches enables GET /api/branches.
 func WithBranches(b BranchService) Option { return func(o *options) { o.branches = b } }
 
-// WithLAN also accepts requests addressed to a private-range IP (10/8,
-// 172.16/12, 192.168/16), so the page can be opened from another device on the
-// local network. There is no authentication: use only on a network you trust.
-func WithLAN() Option { return func(o *options) { o.lan = true } }
+// NewHTTPServer wraps h in an http.Server with explicit timeouts, so slow or
+// stalled connections cannot pile up. WriteTimeout leaves room for a cold
+// workspace build (many git processes).
+func NewHTTPServer(addr string, h http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           h,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      90 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    64 << 10,
+	}
+}
+
+// RequireLoopback refuses any listen address that is not explicitly a loopback
+// host with a port. There is no authentication, so the server must never be
+// reachable from the network (an empty host or 0.0.0.0 would listen on every
+// interface).
+func RequireLoopback(addr string) error {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil || port == "" {
+		return fmt.Errorf("listen address %q must be host:port", addr)
+	}
+	if host == "localhost" {
+		return nil
+	}
+	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+		return nil
+	}
+	return fmt.Errorf("refusing to listen on %q: only loopback addresses are allowed (the server has no authentication)", addr)
+}
 
 // New returns the HTTP handler. web is the built frontend (may be empty).
 func New(build BuildFunc, launcher Launcher, web fs.FS, opts ...Option) http.Handler {
@@ -73,17 +104,35 @@ func New(build BuildFunc, launcher Launcher, web fs.FS, opts ...Option) http.Han
 	mux.HandleFunc("GET /api/branches", s.handleBranches)
 	mux.HandleFunc("/api/actions/{action}", s.handleAction)
 	mux.HandleFunc("/", s.handleStatic)
-	return guard(mux, o.lan)
+	return guard(mux)
 }
 
-// guard blocks DNS-rebinding (Host must be loopback, or a private IP in LAN
-// mode) and cross-site requests (Origin, when sent, must match Host; mutating
-// requests must be JSON, which browsers will not send cross-site without a
-// preflight we never grant).
-func guard(next http.Handler, lan bool) http.Handler {
+// csp: scripts only from the app itself; no framing, no forms, no base tag.
+// Styles allow inline because Vue sets element styles; that does not execute code.
+const csp = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
+	"img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+
+func setSecurityHeaders(h http.Header) {
+	h.Set("Content-Security-Policy", csp)
+	h.Set("X-Frame-Options", "DENY")
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("Referrer-Policy", "no-referrer")
+	h.Set("Cross-Origin-Resource-Policy", "same-origin")
+}
+
+// guard sets browser security headers and blocks DNS-rebinding (Host must be
+// loopback) and cross-site requests (Sec-Fetch-Site must be same-origin or
+// none; Origin, when sent, must match Host; mutating requests must be JSON,
+// which browsers will not send cross-site without a preflight we never grant).
+func guard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !isAllowedHost(r.Host, lan) {
+		setSecurityHeaders(w.Header())
+		if !isLoopbackHost(r.Host) {
 			http.Error(w, "forbidden host", http.StatusForbidden)
+			return
+		}
+		if site := r.Header.Get("Sec-Fetch-Site"); site != "" && site != "same-origin" && site != "none" {
+			http.Error(w, "forbidden cross-site request", http.StatusForbidden)
 			return
 		}
 		if origin := r.Header.Get("Origin"); origin != "" {
@@ -100,7 +149,7 @@ func guard(next http.Handler, lan bool) http.Handler {
 	})
 }
 
-func isAllowedHost(hostport string, lan bool) bool {
+func isLoopbackHost(hostport string) bool {
 	host, _, err := net.SplitHostPort(hostport)
 	if err != nil {
 		host = hostport
@@ -109,11 +158,7 @@ func isAllowedHost(hostport string, lan bool) bool {
 	case "127.0.0.1", "localhost", "[::1]", "::1":
 		return true
 	}
-	if !lan {
-		return false
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsPrivate()
+	return false
 }
 
 type workspaceResponse struct {
@@ -126,7 +171,7 @@ type workspaceResponse struct {
 func (s *Server) handleWorkspace(w http.ResponseWriter, _ *http.Request) {
 	ws, err := s.refresh()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		internalError(w, "workspace", err)
 		return
 	}
 	resp := workspaceResponse{Workspace: ws}
@@ -137,15 +182,40 @@ func (s *Server) handleWorkspace(w http.ResponseWriter, _ *http.Request) {
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
+// flight is a workspace build in progress that concurrent callers wait for.
+type flight struct {
+	done chan struct{}
+	ws   workspace.Workspace
+	err  error
+}
+
+// refresh rebuilds the workspace. A build spawns many git processes, so
+// concurrent requests share the one already running instead of starting more.
+// Once it finishes, the next request builds again (Refresh stays fresh).
 func (s *Server) refresh() (workspace.Workspace, error) {
-	ws, err := s.build()
-	if err != nil {
-		return ws, err
-	}
 	s.mu.Lock()
-	s.last = &ws
+	if f := s.flight; f != nil {
+		s.mu.Unlock()
+		<-f.done
+		return f.ws, f.err
+	}
+	f := &flight{done: make(chan struct{})}
+	s.flight = f
 	s.mu.Unlock()
-	return ws, nil
+
+	defer func() {
+		s.mu.Lock()
+		s.flight = nil
+		if f.err == nil {
+			ws := f.ws
+			s.last = &ws
+		}
+		s.mu.Unlock()
+		close(f.done)
+	}()
+	f.err = errors.New("workspace build did not complete") // replaced unless build panics
+	f.ws, f.err = s.build()
+	return f.ws, f.err
 }
 
 func (s *Server) snapshot() (workspace.Workspace, error) {
@@ -167,7 +237,7 @@ func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request) {
 	}
 	ws, err := s.snapshot()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		internalError(w, "plan", err)
 		return
 	}
 	sess, ok := findSession(ws, r.URL.Query().Get("session"))
@@ -181,7 +251,7 @@ func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		internalError(w, "plan", err)
 		return
 	}
 	writeJSON(w, plan)
@@ -196,7 +266,7 @@ func (s *Server) handleBranches(w http.ResponseWriter, r *http.Request) {
 	}
 	ws, err := s.snapshot()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		internalError(w, "branches", err)
 		return
 	}
 	repo, ok := findRepo(ws, r.URL.Query().Get("repo"))
@@ -213,11 +283,23 @@ func (s *Server) handleBranches(w http.ResponseWriter, r *http.Request) {
 	}
 	q := r.URL.Query()
 	resp, err := s.branches.Graph(repo.Path, wts, q.Get("merged") == "1", q.Get("refresh") == "1")
+	if errors.Is(err, branches.ErrNoDefaultBranch) {
+		http.Error(w, branches.ErrNoDefaultBranch.Error(), http.StatusUnprocessableEntity)
+		return
+	}
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		internalError(w, "branches", err)
 		return
 	}
 	writeJSON(w, resp)
+}
+
+// internalError logs the real cause and tells the client only that something
+// failed: errors carry paths, git stderr and file names that are none of a
+// browser page's business.
+func internalError(w http.ResponseWriter, route string, err error) {
+	log.Printf("workstation: %s: %v", route, err)
+	http.Error(w, "internal error", http.StatusInternalServerError)
 }
 
 func findRepo(ws workspace.Workspace, path string) (workspace.Repo, bool) {
@@ -257,17 +339,17 @@ func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
 	}
 	ws, err := s.snapshot()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		internalError(w, "action", err)
 		return
 	}
 
 	if err := s.run(action, req, ws); err != nil {
-		code := http.StatusInternalServerError
 		var bad badRequest
 		if errors.As(err, &bad) {
-			code = http.StatusBadRequest
+			http.Error(w, bad.Error(), http.StatusBadRequest) // written for the user
+			return
 		}
-		http.Error(w, err.Error(), code)
+		internalError(w, "action "+action, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

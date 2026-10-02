@@ -1,7 +1,9 @@
 package claude
 
 import (
+	"bufio"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -71,6 +73,86 @@ func TestReadTranscriptSlugOnlyInTail(t *testing.T) {
 	got, err := readTranscript(p)
 	if err != nil || got.Slug != "late-slug" {
 		t.Fatalf("slug = %q err=%v", got.Slug, err)
+	}
+}
+
+// A transcript line can be arbitrarily long (a pasted file, a tool dump). The
+// head scan must skip lines beyond a sane size instead of loading them.
+func TestReadTranscriptSkipsHugeHeadLines(t *testing.T) {
+	huge := `{"type":"user","timestamp":"2026-10-02T00:50:00.000Z","message":{"role":"user","content":"` +
+		strings.Repeat("x", 3<<20) + `"}}` + "\n"
+	content := `{"type":"mode","mode":"normal"}` + "\n" + huge +
+		`{"type":"attachment","timestamp":"2026-10-02T00:51:00.000Z","cwd":"/after/huge","gitBranch":"b","slug":"s-1"}` + "\n" +
+		`{"type":"assistant","timestamp":"2026-10-02T01:00:00.000Z","message":{"role":"assistant","content":[{"type":"text","text":"ok"}]}}` + "\n"
+	p := filepath.Join(t.TempDir(), "s.jsonl")
+	write(t, p, content)
+
+	got, err := readTranscript(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Cwd != "/after/huge" || got.Branch != "b" || got.Slug != "s-1" {
+		t.Fatalf("lines after the huge one must still be read: %+v", got)
+	}
+}
+
+func TestReadBoundedLine(t *testing.T) {
+	r := bufio.NewReaderSize(strings.NewReader("short\n"+strings.Repeat("y", 5000)+"\nlast"), 64)
+
+	line, skipped, err := readBoundedLine(r, 100)
+	if err != nil || skipped || string(line) != "short\n" {
+		t.Fatalf("short line: %q skipped=%v err=%v", line, skipped, err)
+	}
+	line, skipped, err = readBoundedLine(r, 100)
+	if err != nil || !skipped || line != nil {
+		t.Fatalf("a line over the limit must be skipped whole: %d bytes skipped=%v err=%v", len(line), skipped, err)
+	}
+	line, skipped, err = readBoundedLine(r, 100)
+	if skipped || string(line) != "last" || !errors.Is(err, io.EOF) {
+		t.Fatalf("the line after must be intact: %q skipped=%v err=%v", line, skipped, err)
+	}
+}
+
+func TestOversizedJSONFilesAreIgnored(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "projects", "enc", "s1.jsonl"), transcript)
+	write(t, filepath.Join(root, "sessions", "1.json"), `{"pid":1,"sessionId":"s1","status":"busy","name":"`+strings.Repeat("x", 2<<20)+`"}`)
+
+	got, err := NewCLI(root, func(int) bool { return true }).Sessions()
+	if err != nil || len(got) != 1 || got[0].Status != StatusStopped {
+		t.Fatalf("an oversized live-session file must be ignored (status falls back to stopped): %+v %v", got, err)
+	}
+
+	droot := t.TempDir()
+	dir := filepath.Join(droot, "claude-code-sessions", "a", "b")
+	write(t, filepath.Join(dir, "local_big.json"), `{"sessionId":"local_big","cwd":"/w","title":"`+strings.Repeat("x", 2<<20)+`"}`)
+	write(t, filepath.Join(dir, "local_ok.json"), `{"sessionId":"local_ok","cwd":"/w","title":"fine"}`)
+	ds, err := NewDesktop([]string{droot}).Sessions()
+	if err != nil || len(ds) != 1 || ds[0].DesktopID != "local_ok" {
+		t.Fatalf("an oversized Desktop file must be skipped: %+v %v", ds, err)
+	}
+}
+
+// A symlink inside plans/ must not turn the plan viewer into a file reader.
+func TestPlanSymlinksAreRefused(t *testing.T) {
+	root := t.TempDir()
+	secret := filepath.Join(root, "secret.txt")
+	write(t, secret, "TOP SECRET")
+	write(t, filepath.Join(root, "projects", "enc", "s1.jsonl"), transcript)
+	if err := os.MkdirAll(filepath.Join(root, "plans"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(secret, filepath.Join(root, "plans", "cool-plan-name.md")); err != nil {
+		t.Skipf("cannot create symlinks here: %v", err)
+	}
+	c := NewCLI(root, func(int) bool { return false })
+
+	if p, err := c.ReadPlan("cool-plan-name"); err == nil || strings.Contains(p.Markdown, "SECRET") {
+		t.Fatalf("a symlinked plan must be refused, got %+v %v", p, err)
+	}
+	got, err := c.Sessions()
+	if err != nil || len(got) != 1 || got[0].HasPlan {
+		t.Fatalf("a symlinked plan must not count as a plan: %+v %v", got, err)
 	}
 }
 

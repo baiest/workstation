@@ -2,6 +2,7 @@ package gitx
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -9,20 +10,51 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
+
+	"workstation/internal/proc"
 )
+
+// Timeout bounds every git invocation, so one hung repository (network
+// filesystem, huge repo) cannot pin a request or pile up processes.
+var Timeout = 30 * time.Second
+
+// hardening is prepended to every call. Repos come from wherever the user ran
+// Claude, and a repo's own .git/config can name commands that git would run:
+// core.fsmonitor on `status`, hooks, a pager. Command-line -c beats repo config.
+// safe.directory is deliberately left alone: it protects against foreign repos.
+var hardening = []string{
+	"-c", "core.fsmonitor=false",
+	"-c", "core.hooksPath=" + os.DevNull,
+	"-c", "core.pager=cat",
+}
 
 // run executes git in dir. GIT_OPTIONAL_LOCKS=0 keeps `status` from taking
 // index.lock, so refreshing never collides with the user's own git commands.
 func run(dir string, args ...string) (string, error) {
-	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
-	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
+	ctx, cancel := context.WithTimeout(context.Background(), Timeout)
+	defer cancel()
+
+	full := append([]string{"-C", dir}, hardening...)
+	cmd := exec.CommandContext(ctx, "git", append(full, args...)...)
+	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0", "GIT_TERMINAL_PROMPT=0")
+	proc.KillTreeOnCancel(cmd)
+	cmd.WaitDelay = 2 * time.Second
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
+		if ctx.Err() != nil {
+			// wrapped without the ExitError so callers cannot mistake a kill for "false"
+			return "", fmt.Errorf("git %s: timed out after %s: %w", strings.Join(args, " "), Timeout, ctx.Err())
+		}
 		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
 	}
 	return stdout.String(), nil
 }
+
+// heads qualifies a branch name. A bare name resolves to a same-named tag
+// first, which a hostile repo could use to distort the branch graph.
+func heads(name string) string { return "refs/heads/" + name }
 
 // Worktrees lists every worktree of the repository containing dir.
 func Worktrees(dir string) ([]Worktree, error) {
@@ -68,14 +100,27 @@ func RemoteURL(dir string) (string, error) {
 // else a local main or master. Empty when none can be determined.
 func DefaultBranch(dir string) string {
 	if out, err := run(dir, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"); err == nil {
-		return strings.TrimPrefix(strings.TrimSpace(out), "origin/")
+		name := strings.TrimPrefix(strings.TrimSpace(out), "origin/")
+		if validBranchName(dir, name) {
+			return name
+		}
 	}
 	for _, name := range []string{"main", "master"} {
-		if _, err := run(dir, "show-ref", "--verify", "--quiet", "refs/heads/"+name); err == nil {
+		if _, err := run(dir, "show-ref", "--verify", "--quiet", heads(name)); err == nil {
 			return name
 		}
 	}
 	return ""
+}
+
+// validBranchName guards names that come from repo-controlled refs before they
+// are used as git arguments (a leading "-" would be read as an option).
+func validBranchName(dir, name string) bool {
+	if name == "" || strings.HasPrefix(name, "-") {
+		return false
+	}
+	_, err := run(dir, "check-ref-format", "--branch", name)
+	return err == nil
 }
 
 // Branch is a local branch tip.
@@ -87,7 +132,7 @@ type Branch struct {
 
 // LocalBranches lists refs/heads.
 func LocalBranches(dir string) ([]Branch, error) {
-	out, err := run(dir, "for-each-ref", "--format=%(refname:short)%00%(objectname)%00%(committerdate:iso-strict)", "refs/heads")
+	out, err := run(dir, "for-each-ref", "--format=%(refname:lstrip=2)%00%(objectname)%00%(committerdate:iso-strict)", "refs/heads")
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +148,7 @@ func LocalBranches(dir string) ([]Branch, error) {
 
 // NoMerged returns the local branches that are not fully merged into base.
 func NoMerged(dir, base string) (map[string]bool, error) {
-	out, err := run(dir, "branch", "--no-merged", base, "--format=%(refname:short)")
+	out, err := run(dir, "branch", "--no-merged", heads(base), "--format=%(refname:lstrip=2)")
 	if err != nil {
 		return nil, err
 	}
@@ -114,10 +159,10 @@ func NoMerged(dir, base string) (map[string]bool, error) {
 	return set, nil
 }
 
-// IsAncestor reports whether a is an ancestor of (or equal to) b. An unknown
-// ref is an error, not "false".
+// IsAncestor reports whether branch a is an ancestor of (or equal to) branch b.
+// An unknown branch or a timeout is an error, not "false".
 func IsAncestor(dir, a, b string) (bool, error) {
-	_, err := run(dir, "merge-base", "--is-ancestor", a, b)
+	_, err := run(dir, "merge-base", "--is-ancestor", heads(a), heads(b))
 	if err == nil {
 		return true, nil
 	}
@@ -128,9 +173,9 @@ func IsAncestor(dir, a, b string) (bool, error) {
 	return false, err
 }
 
-// CountBetween counts commits reachable from b but not from a.
+// CountBetween counts commits reachable from branch b but not from branch a.
 func CountBetween(dir, a, b string) (int, error) {
-	out, err := run(dir, "rev-list", "--count", a+".."+b)
+	out, err := run(dir, "rev-list", "--count", heads(a)+".."+heads(b))
 	if err != nil {
 		return 0, err
 	}
@@ -140,7 +185,7 @@ func CountBetween(dir, a, b string) (int, error) {
 // AheadBehind returns how many commits branch has that base lacks (ahead) and
 // how many base has that branch lacks (behind).
 func AheadBehind(dir, base, branch string) (ahead, behind int, err error) {
-	out, err := run(dir, "rev-list", "--left-right", "--count", base+"..."+branch)
+	out, err := run(dir, "rev-list", "--left-right", "--count", heads(base)+"..."+heads(branch))
 	if err != nil {
 		return 0, 0, err
 	}

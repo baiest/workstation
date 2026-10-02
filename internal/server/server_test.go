@@ -3,12 +3,15 @@ package server
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"workstation/internal/branches"
 	"workstation/internal/claude"
@@ -130,33 +133,199 @@ func TestHostAndOriginChecks(t *testing.T) {
 	}
 }
 
-func TestLANMode(t *testing.T) {
-	ws, _ := fixtureWorkspace(t)
-	build := func() (workspace.Workspace, error) { return ws, nil }
-	web := fstest.MapFS{"index.html": {Data: []byte("ok")}}
+// Only loopback Hosts are served: the Host header is client-controlled, so
+// accepting private IPs would not be an access control, only an invitation.
+func TestOnlyLoopbackHostsAreServed(t *testing.T) {
+	h, _, _, _ := newTestServer(t)
 
-	get := func(h http.Handler, host string) int {
+	get := func(host string) int {
 		req := httptest.NewRequest(http.MethodGet, "/api/workspace", nil)
 		req.Host = host
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)
 		return rec.Code
 	}
-
-	off := New(build, &fakeLauncher{}, web)
-	on := New(build, &fakeLauncher{}, web, WithLAN())
-
-	if get(off, "192.168.1.20:7420") != 403 {
-		t.Error("private IP must be rejected without -lan")
-	}
-	for _, host := range []string{"192.168.1.20:7420", "10.0.0.5:7420", "172.16.3.4:7420", "127.0.0.1:7420"} {
-		if get(on, host) != 200 {
-			t.Errorf("%s must be allowed with -lan", host)
+	for _, host := range []string{"127.0.0.1:7420", "localhost:7420", "[::1]:7420", "127.0.0.1"} {
+		if get(host) != 200 {
+			t.Errorf("%s must be served", host)
 		}
 	}
-	for _, host := range []string{"8.8.8.8:7420", "evil.example.com", "172.32.0.1:7420"} {
-		if get(on, host) != 403 {
-			t.Errorf("%s must stay rejected with -lan", host)
+	for _, host := range []string{"192.168.1.20:7420", "10.0.0.5:7420", "172.16.3.4:7420", "8.8.8.8:7420", "evil.example.com", "localhost.evil.com:7420", ""} {
+		if get(host) != 403 {
+			t.Errorf("%q must be rejected", host)
+		}
+	}
+}
+
+// A burst of refreshes must not multiply the (git-heavy) workspace build.
+// Internal errors (paths, git stderr, file names) are logged, not sent to the
+// browser. Only validation messages written for the user are returned.
+func TestInternalErrorsAreNotLeaked(t *testing.T) {
+	secret := `C:\Users\victim\secret-repo: fatal: unsafe detail`
+
+	h := New(func() (workspace.Workspace, error) { return workspace.Workspace{}, errors.New(secret) }, &fakeLauncher{}, fstest.MapFS{})
+	rec := do(h, http.MethodGet, "/api/workspace", "", nil)
+	if rec.Code != 500 || strings.Contains(rec.Body.String(), "secret-repo") || !strings.Contains(rec.Body.String(), "internal error") {
+		t.Errorf("workspace: %d %q", rec.Code, rec.Body)
+	}
+
+	h2, dir := newServerWith(t, WithPlans(fakePlans{err: errors.New(secret)}), WithBranches(&fakeBranches{err: errors.New(secret)}))
+	if rec := do(h2, http.MethodGet, "/api/plan?session=sess-1", "", nil); rec.Code != 500 || strings.Contains(rec.Body.String(), "secret-repo") {
+		t.Errorf("plan: %d %q", rec.Code, rec.Body)
+	}
+	if rec := do(h2, http.MethodGet, "/api/branches?repo=/r", "", nil); rec.Code != 500 || strings.Contains(rec.Body.String(), "secret-repo") {
+		t.Errorf("branches: %d %q", rec.Code, rec.Body)
+	}
+
+	fl := &fakeLauncher{err: errors.New(secret)}
+	ws, d := fixtureWorkspace(t)
+	h3 := New(func() (workspace.Workspace, error) { return ws, nil }, fl, fstest.MapFS{})
+	if rec := do(h3, http.MethodPost, "/api/actions/terminal", `{"path":`+jsonStr(d)+`}`, nil); rec.Code != 500 || strings.Contains(rec.Body.String(), "secret-repo") {
+		t.Errorf("action: %d %q", rec.Code, rec.Body)
+	}
+	_ = dir
+
+	// validation messages meant for the user do get through
+	fl.err = badRequest("not a directory: /x")
+	if rec := do(h3, http.MethodPost, "/api/actions/terminal", `{"path":`+jsonStr(d)+`}`, nil); rec.Code != 400 || !strings.Contains(rec.Body.String(), "not a directory") {
+		t.Errorf("validation error: %d %q", rec.Code, rec.Body)
+	}
+}
+
+func TestMissingDefaultBranchIsExplained(t *testing.T) {
+	h, _ := newServerWith(t, WithBranches(&fakeBranches{err: fmt.Errorf("wrapped: %w", branches.ErrNoDefaultBranch)}))
+	rec := do(h, http.MethodGet, "/api/branches?repo=/r", "", nil)
+	if rec.Code != 422 || !strings.Contains(rec.Body.String(), "default branch") {
+		t.Fatalf("%d %q", rec.Code, rec.Body)
+	}
+}
+
+func TestConcurrentWorkspaceRequestsShareOneBuild(t *testing.T) {
+	ws, _ := fixtureWorkspace(t)
+	var builds int32
+	started := make(chan struct{}, 16)
+	release := make(chan struct{})
+	h := New(func() (workspace.Workspace, error) {
+		atomic.AddInt32(&builds, 1)
+		started <- struct{}{}
+		<-release
+		return ws, nil
+	}, &fakeLauncher{}, fstest.MapFS{})
+
+	const n = 8
+	codes := make(chan int, n)
+	for i := 0; i < n; i++ {
+		go func() { codes <- do(h, http.MethodGet, "/api/workspace", "", nil).Code }()
+	}
+	<-started                          // first build is running
+	time.Sleep(150 * time.Millisecond) // let the others arrive and queue behind it
+	close(release)
+	for i := 0; i < n; i++ {
+		if c := <-codes; c != 200 {
+			t.Errorf("request %d: %d", i, c)
+		}
+	}
+	if got := atomic.LoadInt32(&builds); got != 1 {
+		t.Fatalf("%d concurrent requests triggered %d builds, want 1", n, got)
+	}
+
+	// once the build is over, the next request builds again (Refresh must be fresh)
+	if c := do(h, http.MethodGet, "/api/workspace", "", nil).Code; c != 200 {
+		t.Fatalf("follow-up request: %d", c)
+	}
+	if got := atomic.LoadInt32(&builds); got != 2 {
+		t.Fatalf("a request after the build finished must rebuild, builds=%d", got)
+	}
+}
+
+func TestSecurityHeadersOnEveryResponse(t *testing.T) {
+	h, _, _, _ := newTestServer(t)
+
+	cases := map[string]*httptest.ResponseRecorder{
+		"static":    do(h, http.MethodGet, "/", "", nil),
+		"api":       do(h, http.MethodGet, "/api/workspace", "", nil),
+		"not found": do(h, http.MethodGet, "/api/plan?session=x", "", nil),
+		"forbidden": do(h, http.MethodGet, "/", "", map[string]string{"Origin": "http://evil.example"}),
+	}
+	for name, rec := range cases {
+		hd := rec.Header()
+		if hd.Get("X-Frame-Options") != "DENY" {
+			t.Errorf("%s: X-Frame-Options = %q", name, hd.Get("X-Frame-Options"))
+		}
+		if hd.Get("X-Content-Type-Options") != "nosniff" {
+			t.Errorf("%s: X-Content-Type-Options = %q", name, hd.Get("X-Content-Type-Options"))
+		}
+		if hd.Get("Referrer-Policy") != "no-referrer" {
+			t.Errorf("%s: Referrer-Policy = %q", name, hd.Get("Referrer-Policy"))
+		}
+		if hd.Get("Cross-Origin-Resource-Policy") != "same-origin" {
+			t.Errorf("%s: Cross-Origin-Resource-Policy = %q", name, hd.Get("Cross-Origin-Resource-Policy"))
+		}
+		csp := hd.Get("Content-Security-Policy")
+		for _, want := range []string{"default-src 'none'", "script-src 'self'", "frame-ancestors 'none'", "base-uri 'none'", "form-action 'none'", "connect-src 'self'"} {
+			if !strings.Contains(csp, want) {
+				t.Errorf("%s: CSP lacks %q: %s", name, want, csp)
+			}
+		}
+		if strings.Contains(csp, "unsafe-eval") || strings.Contains(csp, "script-src 'self' 'unsafe-inline'") {
+			t.Errorf("%s: scripts must stay strict: %s", name, csp)
+		}
+	}
+}
+
+func TestRejectsCrossSiteFetchMetadata(t *testing.T) {
+	h, l, dir, _ := newTestServer(t)
+	body := `{"path":` + jsonStr(dir) + `}`
+
+	for _, site := range []string{"cross-site", "same-site"} {
+		if rec := do(h, http.MethodGet, "/api/workspace", "", map[string]string{"Sec-Fetch-Site": site}); rec.Code != 403 {
+			t.Errorf("GET with Sec-Fetch-Site=%s must be 403, got %d", site, rec.Code)
+		}
+		if rec := do(h, http.MethodPost, "/api/actions/terminal", body, map[string]string{"Sec-Fetch-Site": site}); rec.Code != 403 {
+			t.Errorf("POST with Sec-Fetch-Site=%s must be 403, got %d", site, rec.Code)
+		}
+	}
+	if len(l.calls) != 0 {
+		t.Fatalf("nothing may launch: %v", l.calls)
+	}
+	for _, site := range []string{"same-origin", "none", ""} {
+		hdr := map[string]string{}
+		if site != "" {
+			hdr["Sec-Fetch-Site"] = site
+		}
+		if rec := do(h, http.MethodGet, "/api/workspace", "", hdr); rec.Code != 200 {
+			t.Errorf("Sec-Fetch-Site=%q must pass, got %d", site, rec.Code)
+		}
+	}
+}
+
+func TestHTTPServerHasTimeouts(t *testing.T) {
+	h, _, _, _ := newTestServer(t)
+	s := NewHTTPServer("127.0.0.1:7420", h)
+
+	if s.Addr != "127.0.0.1:7420" || s.Handler == nil {
+		t.Fatalf("addr/handler not set: %+v", s)
+	}
+	if s.ReadHeaderTimeout <= 0 || s.ReadTimeout <= 0 || s.WriteTimeout <= 0 || s.IdleTimeout <= 0 {
+		t.Errorf("all timeouts must be set (slow-header connections would pile up): %+v", s)
+	}
+	if s.ReadHeaderTimeout > s.ReadTimeout {
+		t.Error("header timeout must not exceed the read timeout")
+	}
+	if s.MaxHeaderBytes <= 0 || s.MaxHeaderBytes > 1<<20 {
+		t.Errorf("MaxHeaderBytes = %d, want a small explicit limit", s.MaxHeaderBytes)
+	}
+}
+
+func TestRequireLoopback(t *testing.T) {
+	for _, ok := range []string{"127.0.0.1:7420", "localhost:8080", "[::1]:7420", "127.0.0.2:1"} {
+		if err := RequireLoopback(ok); err != nil {
+			t.Errorf("%s must be accepted: %v", ok, err)
+		}
+	}
+	for _, bad := range []string{"0.0.0.0:7420", ":7420", "[::]:7420", "192.168.1.9:7420", "example.com:80", "7420", "127.0.0.1", ""} {
+		if err := RequireLoopback(bad); err == nil {
+			t.Errorf("%q must be refused", bad)
 		}
 	}
 }
@@ -188,9 +357,12 @@ func TestActionsOnlyForKnownWorktrees(t *testing.T) {
 func TestResumeAction(t *testing.T) {
 	h, l, dir, _ := newTestServer(t)
 
-	for id, code := range map[string]int{"sess-1": 204, "orphan": 204, "local_x": 400, "gone": 400, "nope": 400} {
-		if rec := do(h, http.MethodPost, "/api/actions/resume", `{"sessionId":"`+id+`"}`, nil); rec.Code != code {
-			t.Errorf("resume %s: got %d want %d (%s)", id, rec.Code, code, rec.Body)
+	for _, c := range []struct {
+		id   string
+		code int
+	}{{"sess-1", 204}, {"orphan", 204}, {"local_x", 400}, {"gone", 400}, {"nope", 400}} {
+		if rec := do(h, http.MethodPost, "/api/actions/resume", `{"sessionId":"`+c.id+`"}`, nil); rec.Code != c.code {
+			t.Errorf("resume %s: got %d want %d (%s)", c.id, rec.Code, c.code, rec.Body)
 		}
 	}
 	want := "resume:" + dir + "|sess-1,resume:" + dir + "|orphan"

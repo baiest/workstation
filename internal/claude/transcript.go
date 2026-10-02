@@ -3,6 +3,7 @@ package claude
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"strings"
@@ -13,6 +14,7 @@ const (
 	headLines  = 50       // lines scanned from the start to find cwd
 	tailBytes  = 64 << 10 // bytes read from the end for recent activity
 	maxMessage = 160      // runes kept of the last assistant message
+	maxLine    = 1 << 20  // longer transcript lines are skipped, not loaded
 )
 
 type transcriptInfo struct {
@@ -97,11 +99,11 @@ func readHead(f *os.File) (cwd, branch, slug string) {
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
 		return "", "", ""
 	}
-	r := bufio.NewReader(f)
+	r := bufio.NewReaderSize(f, 64<<10)
 	for i := 0; i < headLines; i++ {
-		line, err := r.ReadBytes('\n')
+		line, skipped, err := readBoundedLine(r, maxLine)
 		var rec record
-		if json.Unmarshal(line, &rec) == nil {
+		if !skipped && json.Unmarshal(line, &rec) == nil {
 			cwd = firstNonEmpty(cwd, rec.Cwd)
 			branch = firstNonEmpty(branch, rec.GitBranch)
 			slug = firstNonEmpty(slug, rec.Slug)
@@ -114,6 +116,37 @@ func readHead(f *os.File) (cwd, branch, slug string) {
 		}
 	}
 	return cwd, branch, slug
+}
+
+// readBoundedLine reads one line, but never holds more than max bytes: a longer
+// line is consumed whole and reported as skipped. A transcript line can be as
+// large as a pasted file, and a crafted one must not exhaust memory.
+func readBoundedLine(r *bufio.Reader, max int) (line []byte, skipped bool, err error) {
+	var buf []byte
+	for {
+		chunk, rerr := r.ReadSlice('\n')
+		if !skipped {
+			if len(buf)+len(chunk) > max {
+				skipped, buf = true, nil
+			} else {
+				buf = append(buf, chunk...)
+			}
+		}
+		switch {
+		case rerr == nil:
+			if skipped {
+				return nil, true, nil
+			}
+			return buf, false, nil
+		case errors.Is(rerr, bufio.ErrBufferFull):
+			continue
+		default:
+			if skipped {
+				return nil, true, rerr
+			}
+			return buf, false, rerr
+		}
+	}
 }
 
 func firstNonEmpty(a, b string) string {

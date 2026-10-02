@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"workstation/internal/safeio"
 )
 
 // CLI reads sessions from the Claude Code config dir (~/.claude):
@@ -72,7 +74,10 @@ func (c *CLI) Sessions() ([]Session, error) {
 	return out, nil
 }
 
-const maxPlanBytes = 1 << 20
+const (
+	maxPlanBytes = 1 << 20
+	maxJSON      = 1 << 20 // small metadata files (live sessions, Desktop sessions)
+)
 
 var slugRe = regexp.MustCompile(`^[a-z0-9-]+$`)
 
@@ -83,8 +88,10 @@ func (c *CLI) planPath(slug string) string {
 	return filepath.Join(c.root, "plans", slug+".md")
 }
 
+// planExists uses Lstat: a symlink in plans/ is not a plan (it could point at
+// any file the user can read).
 func (c *CLI) planExists(slug string) bool {
-	st, err := os.Stat(c.planPath(slug))
+	st, err := os.Lstat(c.planPath(slug))
 	return err == nil && st.Mode().IsRegular()
 }
 
@@ -103,14 +110,14 @@ func (c *CLI) ReadPlan(slug string) (Plan, error) {
 		return Plan{}, fmt.Errorf("invalid plan slug %q", slug)
 	}
 	path := c.planPath(slug)
-	st, err := os.Stat(path)
+	st, err := os.Lstat(path)
 	if err != nil {
 		return Plan{}, err
 	}
 	if !st.Mode().IsRegular() || st.Size() > maxPlanBytes {
 		return Plan{}, fmt.Errorf("plan %s is not a regular file under %d bytes", slug, maxPlanBytes)
 	}
-	data, err := os.ReadFile(path)
+	data, err := safeio.ReadFile(path, maxPlanBytes)
 	if err != nil {
 		return Plan{}, err
 	}
@@ -139,9 +146,9 @@ func (c *CLI) liveSessions() map[string]liveSession {
 		if !strings.HasSuffix(f.Name(), ".json") {
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(c.root, "sessions", f.Name()))
+		data, err := safeio.ReadFile(filepath.Join(c.root, "sessions", f.Name()), maxJSON)
 		if err != nil {
-			continue
+			continue // unreadable or oversized: treated as no live info
 		}
 		var l liveSession
 		if json.Unmarshal(data, &l) == nil && l.SessionID != "" {

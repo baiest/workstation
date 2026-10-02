@@ -140,13 +140,13 @@ func TestBitbucketCloud(t *testing.T) {
 			return
 		}
 		if r.URL.Query().Get("page") == "2" {
-			_, _ = w.Write([]byte(`{"values":[{"id":3,"title":"Old","state":"DECLINED","source":{"branch":{"name":"c"}},"destination":{"branch":{"name":"main"}},"links":{"html":{"href":"h3"}},"updated_on":"2026-09-01T10:00:00.000000+00:00","participants":[]}]}`))
+			_, _ = w.Write([]byte(`{"values":[{"id":3,"title":"Old","state":"DECLINED","source":{"branch":{"name":"c"}},"destination":{"branch":{"name":"main"}},"links":{"html":{"href":"https://bb.test/3"}},"updated_on":"2026-09-01T10:00:00.000000+00:00","participants":[]}]}`))
 			return
 		}
 		_, _ = w.Write([]byte(`{"values":[
-		 {"id":1,"title":"A","state":"OPEN","draft":false,"source":{"branch":{"name":"a"}},"destination":{"branch":{"name":"main"}},"links":{"html":{"href":"h1"}},"updated_on":"2026-10-01T10:00:00.000000+00:00",
+		 {"id":1,"title":"A","state":"OPEN","draft":false,"source":{"branch":{"name":"a"}},"destination":{"branch":{"name":"main"}},"links":{"html":{"href":"https://bb.test/1"}},"updated_on":"2026-10-01T10:00:00.000000+00:00",
 		  "participants":[{"role":"REVIEWER","approved":true,"state":"approved"},{"role":"REVIEWER","approved":false,"state":null},{"role":"PARTICIPANT","approved":false,"state":null}]},
-		 {"id":2,"title":"B","state":"OPEN","draft":true,"source":{"branch":{"name":"b"}},"destination":{"branch":{"name":"a"}},"links":{"html":{"href":"h2"}},"updated_on":"2026-10-01T11:00:00.000000+00:00",
+		 {"id":2,"title":"B","state":"OPEN","draft":true,"source":{"branch":{"name":"b"}},"destination":{"branch":{"name":"a"}},"links":{"html":{"href":"https://bb.test/2"}},"updated_on":"2026-10-01T11:00:00.000000+00:00",
 		  "participants":[{"role":"REVIEWER","approved":false,"state":"changes_requested"}]}
 		],"next":"` + srv.URL + `/2.0/repositories/ws/repo/pullrequests?page=2"}`))
 	}))
@@ -161,7 +161,7 @@ func TestBitbucketCloud(t *testing.T) {
 		t.Fatalf("pagination: got %d prs", len(prs))
 	}
 	a, b, c := prs[0], prs[1], prs[2]
-	if a.Number != 1 || a.State != StateOpen || a.Source != "a" || a.Dest != "main" || a.Approvals != 1 || a.Review != ReviewApproved || a.URL != "h1" {
+	if a.Number != 1 || a.State != StateOpen || a.Source != "a" || a.Dest != "main" || a.Approvals != 1 || a.Review != ReviewApproved || a.URL != "https://bb.test/1" {
 		t.Errorf("A: %+v", a)
 	}
 	if !b.Draft || b.ChangesRequested != 1 || b.Review != ReviewChangesRequested || b.Dest != "a" {
@@ -205,13 +205,13 @@ func TestBitbucketServer(t *testing.T) {
 			return
 		}
 		if r.URL.Query().Get("start") == "2" {
-			_, _ = w.Write([]byte(`{"values":[{"id":3,"title":"C","state":"MERGED","fromRef":{"displayId":"c"},"toRef":{"displayId":"main"},"links":{"self":[{"href":"h3"}]},"updatedDate":1790000000000,"reviewers":[]}],"isLastPage":true}`))
+			_, _ = w.Write([]byte(`{"values":[{"id":3,"title":"C","state":"MERGED","fromRef":{"displayId":"c"},"toRef":{"displayId":"main"},"links":{"self":[{"href":"https://bb.test/3"}]},"updatedDate":1790000000000,"reviewers":[]}],"isLastPage":true}`))
 			return
 		}
 		_, _ = w.Write([]byte(`{"values":[
-		 {"id":1,"title":"A","state":"OPEN","fromRef":{"displayId":"a"},"toRef":{"displayId":"main"},"links":{"self":[{"href":"h1"}]},"updatedDate":1790000000000,
+		 {"id":1,"title":"A","state":"OPEN","fromRef":{"displayId":"a"},"toRef":{"displayId":"main"},"links":{"self":[{"href":"https://bb.test/1"}]},"updatedDate":1790000000000,
 		  "reviewers":[{"status":"APPROVED","approved":true},{"status":"UNAPPROVED","approved":false}]},
-		 {"id":2,"title":"B","state":"DECLINED","fromRef":{"displayId":"b"},"toRef":{"displayId":"a"},"links":{"self":[{"href":"h2"}]},"updatedDate":1790000000000,
+		 {"id":2,"title":"B","state":"DECLINED","fromRef":{"displayId":"b"},"toRef":{"displayId":"a"},"links":{"self":[{"href":"https://bb.test/2"}]},"updatedDate":1790000000000,
 		  "reviewers":[{"status":"NEEDS_WORK","approved":false}]}
 		],"isLastPage":false,"nextPageStart":2}`))
 	}))
@@ -226,7 +226,7 @@ func TestBitbucketServer(t *testing.T) {
 		t.Fatalf("pagination: got %d", len(prs))
 	}
 	a, b, c := prs[0], prs[1], prs[2]
-	if a.State != StateOpen || a.Approvals != 1 || a.Review != ReviewApproved || a.Source != "a" || a.URL != "h1" {
+	if a.State != StateOpen || a.Approvals != 1 || a.Review != ReviewApproved || a.Source != "a" || a.URL != "https://bb.test/1" {
 		t.Errorf("A: %+v", a)
 	}
 	if b.State != StateDeclined || b.ChangesRequested != 1 || b.Review != ReviewChangesRequested || b.Dest != "a" {
@@ -234,6 +234,128 @@ func TestBitbucketServer(t *testing.T) {
 	}
 	if c.State != StateMerged || c.UpdatedAt.IsZero() {
 		t.Errorf("C: %+v", c)
+	}
+}
+
+// PR links are rendered as <a href>: a hostile server must not smuggle in a
+// javascript: or data: URL.
+func TestOnlyHTTPLinksSurvive(t *testing.T) {
+	for in, want := range map[string]string{
+		"https://github.com/o/r/pull/1": "https://github.com/o/r/pull/1",
+		"http://bb.local/pull/2":        "http://bb.local/pull/2",
+		"javascript:alert(1)":           "",
+		" JaVaScRiPt:alert(1)":          "",
+		"data:text/html,<script>":       "",
+		"//evil.example/x":              "",
+		"/relative/path":                "",
+		"vbscript:x":                    "",
+		"":                              "",
+	} {
+		if got := safeURL(in); got != want {
+			t.Errorf("safeURL(%q) = %q, want %q", in, got, want)
+		}
+	}
+
+	gh := &GitHub{Run: func(string, ...string) ([]byte, error) {
+		return []byte(`[{"number":1,"title":"t","state":"OPEN","headRefName":"a","baseRefName":"main","updatedAt":"2026-10-01T10:00:00Z","url":"javascript:alert(1)","latestReviews":[]}]`), nil
+	}}
+	if prs, err := gh.PullRequests(context.Background()); err != nil || prs[0].URL != "" {
+		t.Errorf("github: %+v %v", prs, err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/2.0/") {
+			_, _ = w.Write([]byte(`{"values":[{"id":1,"state":"OPEN","source":{"branch":{"name":"a"}},"destination":{"branch":{"name":"main"}},"links":{"html":{"href":"javascript:alert(1)"}},"participants":[]}]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"values":[{"id":1,"state":"OPEN","fromRef":{"displayId":"a"},"toRef":{"displayId":"main"},"links":{"self":[{"href":"data:text/html,x"}]},"reviewers":[]}],"isLastPage":true}`))
+	}))
+	defer srv.Close()
+	cloud := &BitbucketCloud{Base: srv.URL, Workspace: "w", Repo: "r", Client: srv.Client()}
+	if prs, err := cloud.PullRequests(context.Background()); err != nil || prs[0].URL != "" {
+		t.Errorf("cloud: %+v %v", prs, err)
+	}
+	server := &BitbucketServer{Base: srv.URL, Project: "P", Repo: "r", Token: "t", Client: srv.Client()}
+	if prs, err := server.PullRequests(context.Background()); err != nil || prs[0].URL != "" {
+		t.Errorf("server: %+v %v", prs, err)
+	}
+}
+
+func TestResponseBodyIsCapped(t *testing.T) {
+	old := maxBody
+	maxBody = 1024
+	defer func() { maxBody = old }()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"values":[],"padding":"` + strings.Repeat("x", 4096) + `"}`))
+	}))
+	defer srv.Close()
+
+	cloud := &BitbucketCloud{Base: srv.URL, Workspace: "w", Repo: "r", Client: srv.Client()}
+	if _, err := cloud.PullRequests(context.Background()); err == nil || !strings.Contains(err.Error(), "too large") {
+		t.Fatalf("an oversized response must be refused, got %v", err)
+	}
+}
+
+// Credentials must never follow a pagination link to another host.
+func TestCloudPaginationStaysOnTheSameHost(t *testing.T) {
+	hits := 0
+	evil := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits++
+		_, _ = w.Write([]byte(`{"values":[]}`))
+	}))
+	defer evil.Close()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"values":[],"next":"` + evil.URL + `/steal"}`))
+	}))
+	defer srv.Close()
+
+	cloud := &BitbucketCloud{Base: srv.URL, Workspace: "w", Repo: "r", User: "u", Token: "secret", Client: srv.Client()}
+	_, err := cloud.PullRequests(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "another host") {
+		t.Fatalf("expected a refusal, got %v", err)
+	}
+	if hits != 0 {
+		t.Fatalf("the other host was contacted %d times (credentials would have leaked)", hits)
+	}
+}
+
+func TestDetectRefusesRiskyForgeConfig(t *testing.T) {
+	env := map[string]string{"BB_TOKEN": "s", "AWS_SECRET_ACCESS_KEY": "aws", "GITHUB_TOKEN": "g", "BITBUCKET_TOKEN": "t"}
+	base := Deps{Getenv: func(k string) string { return env[k] }, GH: func(string, ...string) ([]byte, error) { return nil, nil }}
+	detect := func(f config.Forge, remote string) error {
+		d := base
+		d.Forges = []config.Forge{f}
+		_, err := Detect("/r", remote, d)
+		return err
+	}
+	remote := "https://bb.corp.com/scm/P/r.git"
+
+	if err := detect(config.Forge{Host: "bb.corp.com", Type: "bitbucket-server", TokenEnv: "BB_TOKEN"}, remote); err != nil {
+		t.Errorf("sane config must pass: %v", err)
+	}
+	if err := detect(config.Forge{Host: "bb.corp.com", Type: "bitbucket-server", TokenEnv: "BB_TOKEN", BaseURL: "https://bb.corp.com/git"}, remote); err != nil {
+		t.Errorf("https baseUrl on the same host must pass: %v", err)
+	}
+
+	risky := map[string]config.Forge{
+		"plain http baseUrl":        {Host: "bb.corp.com", Type: "bitbucket-server", TokenEnv: "BB_TOKEN", BaseURL: "http://bb.corp.com"},
+		"baseUrl on another host":   {Host: "bb.corp.com", Type: "bitbucket-server", TokenEnv: "BB_TOKEN", BaseURL: "https://evil.example"},
+		"baseUrl with credentials":  {Host: "bb.corp.com", Type: "bitbucket-server", TokenEnv: "BB_TOKEN", BaseURL: "https://u:p@bb.corp.com"},
+		"unrelated secret as token": {Host: "bb.corp.com", Type: "bitbucket-server", TokenEnv: "AWS_SECRET_ACCESS_KEY"},
+		"github token as token":     {Host: "bb.corp.com", Type: "bitbucket-server", TokenEnv: "GITHUB_TOKEN"},
+		"lowercase env name":        {Host: "bb.corp.com", Type: "bitbucket-server", TokenEnv: "bb_token"},
+	}
+	for name, f := range risky {
+		if err := detect(f, remote); err == nil {
+			t.Errorf("%s must be refused", name)
+		}
+	}
+
+	cloud := config.Forge{Host: "bitbucket.org", Type: "bitbucket-cloud", UserEnv: "AWS_SECRET_ACCESS_KEY", TokenEnv: "BITBUCKET_TOKEN"}
+	if err := detect(cloud, "git@bitbucket.org:w/r.git"); err == nil {
+		t.Error("cloud userEnv outside the allowed prefixes must be refused")
 	}
 }
 

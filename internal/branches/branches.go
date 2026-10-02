@@ -7,6 +7,7 @@
 package branches
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -24,6 +25,10 @@ const (
 	mergedWindow    = 30 * 24 * time.Hour
 	gitConcurrency  = 8
 )
+
+// ErrNoDefaultBranch means the repo has no origin/HEAD, main or master, so there
+// is nothing to draw the graph from. It is safe to show to the user.
+var ErrNoDefaultBranch = errors.New("cannot determine the default branch (no origin/HEAD, main or master)")
 
 type Worktree struct {
 	Name string `json:"name"`
@@ -68,7 +73,7 @@ type candidate struct {
 func Build(dir string, in Input) (Graph, error) {
 	def := gitx.DefaultBranch(dir)
 	if def == "" {
-		return Graph{}, fmt.Errorf("cannot determine the default branch (no origin/HEAD, main or master)")
+		return Graph{}, ErrNoDefaultBranch
 	}
 	all, err := gitx.LocalBranches(dir)
 	if err != nil {

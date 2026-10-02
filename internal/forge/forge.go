@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"workstation/internal/config"
+	"workstation/internal/proc"
 )
 
 const (
@@ -36,6 +37,38 @@ const (
 
 	maxPages = 3
 )
+
+// maxBody caps any single API response we are willing to read.
+var maxBody int64 = 8 << 20
+
+// safeURL returns u only if it is an absolute http(s) URL. PR links end up in
+// <a href>, so a javascript: or data: URL from a hostile server must not pass.
+func safeURL(u string) string {
+	p, err := url.Parse(strings.TrimSpace(u))
+	if err != nil || p.Host == "" || (p.Scheme != "http" && p.Scheme != "https") {
+		return ""
+	}
+	return p.String()
+}
+
+// envName limits which environment variables the config may read credentials
+// from, so a tampered config file cannot turn this tool into a way to send an
+// unrelated secret (cloud keys, other tokens) to a host of its choosing.
+var envName = regexp.MustCompile(`^(BITBUCKET|BB|ATLASSIAN|WORKSTATION)_[A-Z0-9_]{1,56}$`)
+
+func checkEnvName(name string) error {
+	if !envName.MatchString(name) {
+		return fmt.Errorf("environment variable %q is not allowed for credentials: it must start with BITBUCKET_, BB_, ATLASSIAN_ or WORKSTATION_ and be upper case", name)
+	}
+	return nil
+}
+
+// sameOrigin reports whether u has the same scheme and host as base.
+func sameOrigin(u, base string) bool {
+	a, errA := url.Parse(u)
+	b, errB := url.Parse(base)
+	return errA == nil && errB == nil && a.Scheme == b.Scheme && strings.EqualFold(a.Host, b.Host)
+}
 
 // PR is a pull request, normalised across hosts.
 type PR struct {
@@ -77,13 +110,34 @@ func DefaultDeps(forges []config.Forge) Deps {
 	return Deps{Forges: forges, Getenv: os.Getenv, GH: runGH, HTTP: &http.Client{Timeout: 20 * time.Second}}
 }
 
+const ghTimeout = 25 * time.Second
+
 func runGH(dir string, args ...string) ([]byte, error) {
-	cmd := exec.Command("gh", args...)
+	env := append(os.Environ(), "GH_PROMPT_DISABLED=1", "GH_NO_UPDATE_NOTIFIER=1", "GH_SPINNER_DISABLED=1")
+	return runCommand(ghTimeout, dir, env, "gh", args...)
+}
+
+// runCommand runs name in dir and returns stdout. It is killed (with its
+// descendants) after timeout, so a stuck network call cannot pin a request.
+// A nil env inherits the current environment.
+func runCommand(timeout time.Duration, dir string, env []string, name string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
+	if env != nil {
+		cmd.Env = env
+	}
+	proc.KillTreeOnCancel(cmd)
+	cmd.WaitDelay = 2 * time.Second
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("gh %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("%s %s: timed out after %s: %w", name, strings.Join(args, " "), timeout, ctx.Err())
+		}
+		return nil, fmt.Errorf("%s %s: %w: %s", name, strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
 	}
 	return stdout.Bytes(), nil
 }
@@ -149,6 +203,11 @@ func findForge(forges []config.Forge, host string) (config.Forge, bool) {
 
 func newCloud(cfg config.Forge, ws, repo string, d Deps) (Provider, error) {
 	userEnv, tokenEnv := orDefault(cfg.UserEnv, "BITBUCKET_USER"), orDefault(cfg.TokenEnv, "BITBUCKET_TOKEN")
+	for _, name := range []string{userEnv, tokenEnv} {
+		if err := checkEnvName(name); err != nil {
+			return nil, fmt.Errorf("bitbucket cloud: %w", err)
+		}
+	}
 	token := d.Getenv(tokenEnv)
 	if token == "" {
 		return nil, fmt.Errorf("bitbucket cloud: set %s (and %s for the account email)", tokenEnv, userEnv)
@@ -163,15 +222,31 @@ func newServer(cfg config.Forge, host, project, repo string, d Deps) (Provider, 
 	if cfg.TokenEnv == "" {
 		return nil, fmt.Errorf("bitbucket server %s: tokenEnv is not configured", host)
 	}
+	if err := checkEnvName(cfg.TokenEnv); err != nil {
+		return nil, fmt.Errorf("bitbucket server %s: %w", host, err)
+	}
 	token := d.Getenv(cfg.TokenEnv)
 	if token == "" {
 		return nil, fmt.Errorf("bitbucket server %s: set %s", host, cfg.TokenEnv)
 	}
-	base := strings.TrimRight(cfg.BaseURL, "/")
-	if base == "" {
-		base = "https://" + host
+	base, err := serverBase(cfg.BaseURL, host)
+	if err != nil {
+		return nil, fmt.Errorf("bitbucket server %s: %w", host, err)
 	}
 	return &BitbucketServer{Base: base, Project: project, Repo: repo, Token: token, Client: d.HTTP}, nil
+}
+
+// serverBase returns the API base for a Bitbucket Server host. The token is sent
+// there, so it must be https and on the very host the config declares.
+func serverBase(baseURL, host string) (string, error) {
+	if baseURL == "" {
+		return "https://" + host, nil
+	}
+	u, err := url.Parse(baseURL)
+	if err != nil || u.Scheme != "https" || u.User != nil || !strings.EqualFold(u.Hostname(), host) {
+		return "", fmt.Errorf("baseUrl %q must be an https URL on host %q without credentials", baseURL, host)
+	}
+	return strings.TrimRight(baseURL, "/"), nil
 }
 
 func orDefault(v, def string) string {
@@ -214,5 +289,12 @@ func getJSON(ctx context.Context, c *http.Client, url string, auth func(*http.Re
 		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 200))
 		return fmt.Errorf("%s: %s %s", url, resp.Status, strings.TrimSpace(string(snippet)))
 	}
-	return json.NewDecoder(resp.Body).Decode(out)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBody+1))
+	if err != nil {
+		return err
+	}
+	if int64(len(body)) > maxBody {
+		return fmt.Errorf("%s: response too large (limit %d bytes)", url, maxBody)
+	}
+	return json.Unmarshal(body, out)
 }

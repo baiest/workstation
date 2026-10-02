@@ -3,10 +3,11 @@ package claude
 import (
 	"encoding/json"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"workstation/internal/safeio"
 )
 
 // Desktop reads Claude Desktop's Code-tab sessions:
@@ -49,7 +50,7 @@ func (d *Desktop) Sessions() ([]Session, error) {
 }
 
 func readDesktopFile(path string) (Session, bool) {
-	data, err := os.ReadFile(path)
+	data, err := safeio.ReadFile(path, maxJSON)
 	if err != nil {
 		return Session{}, false
 	}

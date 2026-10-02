@@ -56,7 +56,7 @@ func (b *BitbucketCloud) PullRequests(ctx context.Context) ([]PR, error) {
 		}
 		for _, v := range p.Values {
 			pr := PR{
-				Number: v.ID, Title: v.Title, URL: v.Links.HTML.Href, Draft: v.Draft,
+				Number: v.ID, Title: v.Title, URL: safeURL(v.Links.HTML.Href), Draft: v.Draft,
 				Source: v.Source.Branch.Name, Dest: v.Destination.Branch.Name, State: cloudState(v.State),
 			}
 			pr.UpdatedAt, _ = time.Parse(time.RFC3339, v.UpdatedOn)
@@ -76,6 +76,10 @@ func (b *BitbucketCloud) PullRequests(ctx context.Context) ([]PR, error) {
 			prs = append(prs, pr)
 		}
 		next = p.Next
+		if next != "" && !sameOrigin(next, b.Base) {
+			// the Authorization header would follow the link: never send it elsewhere
+			return nil, fmt.Errorf("bitbucket cloud: refusing pagination link to another host: %s", next)
+		}
 	}
 	return prs, nil
 }
@@ -139,7 +143,7 @@ func (b *BitbucketServer) PullRequests(ctx context.Context) ([]PR, error) {
 				Source: v.FromRef.DisplayID, Dest: v.ToRef.DisplayID,
 			}
 			if len(v.Links.Self) > 0 {
-				pr.URL = v.Links.Self[0].Href
+				pr.URL = safeURL(v.Links.Self[0].Href)
 			}
 			if v.UpdatedDate > 0 {
 				pr.UpdatedAt = time.UnixMilli(v.UpdatedDate)

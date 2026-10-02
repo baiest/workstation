@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -38,6 +39,17 @@ func TestLoad(t *testing.T) {
 		want := Forge{Host: "bb.corp.com", Type: "bitbucket-server", TokenEnv: "BB_TOKEN", BaseURL: "https://bb.corp.com/git"}
 		if err != nil || len(c.Forges) != 1 || c.Forges[0] != want {
 			t.Fatalf("got %+v %v", c, err)
+		}
+	})
+
+	t.Run("oversized file is refused", func(t *testing.T) {
+		p := filepath.Join(dir, "huge.json")
+		body := `{"repos":["` + strings.Repeat("a", 2<<20) + `"]}`
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Load(p); err == nil {
+			t.Fatal("a multi-megabyte config must be refused")
 		}
 	})
 

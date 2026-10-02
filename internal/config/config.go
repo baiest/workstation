@@ -7,7 +7,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"workstation/internal/safeio"
 )
+
+const maxConfigBytes = 1 << 20
 
 type Config struct {
 	// Repos are listed even when no Claude session ever ran in them.
@@ -34,7 +38,7 @@ func DefaultPath() string {
 
 // Load reads path; a missing file is not an error.
 func Load(path string) (Config, error) {
-	data, err := os.ReadFile(path)
+	data, err := safeio.ReadFile(path, maxConfigBytes)
 	if errors.Is(err, os.ErrNotExist) {
 		return Config{}, nil
 	}

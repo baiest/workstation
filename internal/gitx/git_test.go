@@ -1,10 +1,14 @@
 package gitx
 
 import (
+	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 func mustGit(t *testing.T, dir string, args ...string) {
@@ -33,6 +37,125 @@ func commitFile(t *testing.T, dir, name, content, msg string) {
 	}
 	mustGit(t, dir, "add", ".")
 	mustGit(t, dir, "commit", "-m", msg)
+}
+
+// A repo's own .git/config can name a command (core.fsmonitor) that `git status`
+// runs. Repos come from wherever the user ran Claude, so we must not run it.
+func TestStatusDoesNotRunRepoConfiguredCommands(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	repo := t.TempDir()
+	mustGit(t, repo, "init", "-b", "main")
+	commitFile(t, repo, "a.txt", "1", "c1")
+
+	marker := filepath.ToSlash(filepath.Join(t.TempDir(), "pwned"))
+	mustGit(t, repo, "config", "core.fsmonitor", "echo x > '"+marker+"'; :")
+
+	// precondition: the vector is real here (plain git runs it); otherwise this test proves nothing
+	plain := exec.Command("git", "-C", repo, "status", "--porcelain")
+	_ = plain.Run()
+	if _, err := os.Stat(marker); err != nil {
+		t.Skip("this git does not run core.fsmonitor commands; nothing to defend against")
+	}
+	if err := os.Remove(marker); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := StatusOf(repo); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("StatusOf executed the repository's core.fsmonitor command")
+	}
+}
+
+func TestRunTimesOutHungGit(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	repo := t.TempDir()
+	mustGit(t, repo, "init", "-b", "main")
+
+	old := Timeout
+	Timeout = 300 * time.Millisecond
+	defer func() { Timeout = old }()
+
+	start := time.Now()
+	_, err := run(repo, "-c", "alias.hang=!sleep 20", "hang")
+	if err == nil || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected a deadline error, got %v", err)
+	}
+	if took := time.Since(start); took > 10*time.Second {
+		t.Fatalf("a hung git must be killed at the timeout, took %s", took)
+	}
+	if !strings.Contains(err.Error(), "timed out") {
+		t.Errorf("error should say it timed out: %v", err)
+	}
+}
+
+func TestTimeoutIsNotReadAsNotAncestor(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	repo := t.TempDir()
+	mustGit(t, repo, "init", "-b", "main")
+	commitFile(t, repo, "a.txt", "1", "c1")
+
+	old := Timeout
+	Timeout = time.Nanosecond
+	defer func() { Timeout = old }()
+	if ok, err := IsAncestor(repo, "main", "main"); err == nil || ok {
+		t.Fatalf("a timeout must surface as an error, got ok=%v err=%v", ok, err)
+	}
+}
+
+// A tag named like a branch wins plain ref resolution; branch helpers must
+// always mean the branch, or a hostile repo could distort the graph.
+func TestBranchHelpersIgnoreSameNamedTags(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	repo := t.TempDir()
+	mustGit(t, repo, "init", "-b", "main")
+	commitFile(t, repo, "a.txt", "1", "c1")
+	mustGit(t, repo, "tag", "feat") // tag "feat" -> main's commit
+	mustGit(t, repo, "checkout", "-b", "feat")
+	commitFile(t, repo, "b.txt", "2", "f1")
+	mustGit(t, repo, "checkout", "main")
+
+	if n, err := CountBetween(repo, "main", "feat"); err != nil || n != 1 {
+		t.Errorf("CountBetween must use the branch, got %d %v", n, err)
+	}
+	if a, b, err := AheadBehind(repo, "main", "feat"); err != nil || a != 1 || b != 0 {
+		t.Errorf("AheadBehind must use the branch, got %d/%d %v", a, b, err)
+	}
+	if ok, err := IsAncestor(repo, "main", "feat"); err != nil || !ok {
+		t.Errorf("main is an ancestor of the feat branch: %v %v", ok, err)
+	}
+	if ok, err := IsAncestor(repo, "feat", "main"); err != nil || ok {
+		t.Errorf("the feat branch is not an ancestor of main: %v %v", ok, err)
+	}
+	un, err := NoMerged(repo, "main")
+	if err != nil || !un["feat"] {
+		t.Errorf("NoMerged = %v %v", un, err)
+	}
+}
+
+func TestDefaultBranchRejectsOddNames(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	repo := t.TempDir()
+	mustGit(t, repo, "init", "-b", "main")
+	commitFile(t, repo, "a.txt", "1", "c1")
+	mustGit(t, repo, "remote", "add", "origin", "git@github.com:o/r.git")
+	// a symbolic ref target that is not a valid branch name
+	mustGit(t, repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/--output=x")
+
+	if d := DefaultBranch(repo); d != "main" {
+		t.Errorf("an invalid origin/HEAD must fall back to local main, got %q", d)
+	}
 }
 
 func TestBranchHelpers(t *testing.T) {

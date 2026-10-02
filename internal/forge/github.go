@@ -57,7 +57,7 @@ func (g *GitHub) PullRequests(context.Context) ([]PR, error) {
 	prs := make([]PR, 0, len(raw))
 	for _, r := range raw {
 		pr := PR{
-			Number: r.Number, Title: r.Title, URL: r.URL, Source: r.HeadRefName, Dest: r.BaseRefName,
+			Number: r.Number, Title: r.Title, URL: safeURL(r.URL), Source: r.HeadRefName, Dest: r.BaseRefName,
 			State: ghState(r.State), Draft: r.IsDraft, Review: strings.ToLower(r.ReviewDecision),
 			Checks: checks[r.Number],
 		}

@@ -1,6 +1,7 @@
 package branches
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -238,7 +239,7 @@ func TestBuildNoDefaultBranch(t *testing.T) {
 	repo := t.TempDir()
 	mustGit(t, repo, "init", "-b", "trunk")
 	commit(t, repo, "a", "c1")
-	if _, err := Build(repo, Input{}); err == nil {
-		t.Fatal("expected an error when no default branch can be determined")
+	if _, err := Build(repo, Input{}); !errors.Is(err, ErrNoDefaultBranch) {
+		t.Fatalf("expected ErrNoDefaultBranch when no default branch can be determined, got %v", err)
 	}
 }

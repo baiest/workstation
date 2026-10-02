@@ -1,9 +1,10 @@
 package server
 
 import (
-	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"strings"
@@ -19,38 +20,73 @@ type Launcher interface {
 }
 
 // OSLauncher launches terminals and editors for the current OS.
+//
+// Every directory it receives comes from git or a Claude transcript, so it is
+// treated as untrusted: it is validated first and, on Windows, never placed on
+// a command line that cmd.exe could re-parse.
 type OSLauncher struct{}
 
 var safeID = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
-func (OSLauncher) Terminal(dir string) error { return start(terminalArgv(runtime.GOOS, dir, "")) }
-
-func (OSLauncher) Resume(dir, sessionID string) error {
-	return start(terminalArgv(runtime.GOOS, dir, sessionID))
+// spec is a process to start. Dir is the working directory (a path travels
+// there, not through argument parsing, wherever that is possible).
+type spec struct {
+	Name       string
+	Args       []string
+	Dir        string
+	NewConsole bool // Windows: give the process its own console window
 }
 
-func (l OSLauncher) Editor(dir string) error {
-	name := l.EditorName()
-	if name == "" {
-		return errors.New("neither cursor nor code is on PATH")
+func (OSLauncher) Terminal(dir string) error { return launchTerminal(dir, "") }
+
+func (OSLauncher) Resume(dir, sessionID string) error { return launchTerminal(dir, sessionID) }
+
+func launchTerminal(dir, sessionID string) error {
+	if err := validateDir(dir); err != nil {
+		return err
 	}
-	return start([]string{name, dir}, nil)
-}
-
-func (OSLauncher) EditorName() string {
-	for _, name := range []string{"cursor", "code"} {
-		if _, err := exec.LookPath(name); err == nil {
-			return name
-		}
-	}
-	return ""
-}
-
-func start(argv []string, err error) error {
+	sp, err := terminalCommand(runtime.GOOS, dir, sessionID)
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command(argv[0], argv[1:]...)
+	return start(sp)
+}
+
+func (l OSLauncher) Editor(dir string) error {
+	if err := validateDir(dir); err != nil {
+		return err
+	}
+	_, path := findEditor()
+	if path == "" {
+		return badRequest("neither cursor nor code is on PATH")
+	}
+	sp, err := editorCommand(path, dir)
+	if err != nil {
+		return err
+	}
+	return start(sp)
+}
+
+func (OSLauncher) EditorName() string {
+	name, _ := findEditor()
+	return name
+}
+
+func findEditor() (name, path string) {
+	for _, n := range []string{"cursor", "code"} {
+		if p, err := exec.LookPath(n); err == nil {
+			return n, p
+		}
+	}
+	return "", ""
+}
+
+func start(sp spec) error {
+	cmd := exec.Command(sp.Name, sp.Args...)
+	cmd.Dir = sp.Dir
+	if sp.NewConsole {
+		setNewConsole(cmd)
+	}
 	if err := cmd.Start(); err != nil {
 		return err
 	}
@@ -58,30 +94,71 @@ func start(argv []string, err error) error {
 	return nil
 }
 
-// terminalArgv builds the command that opens a terminal in dir, optionally
+// validateDir accepts only an existing, absolute directory without control
+// characters.
+func validateDir(dir string) error {
+	if dir == "" || !filepath.IsAbs(dir) {
+		return badRequest(fmt.Sprintf("refusing non-absolute directory %q", dir))
+	}
+	for _, r := range dir {
+		if r < 0x20 || r == 0x7f {
+			return badRequest(fmt.Sprintf("refusing directory with control characters: %q", dir))
+		}
+	}
+	st, err := os.Stat(dir)
+	if err != nil || !st.IsDir() {
+		return badRequest(fmt.Sprintf("not a directory: %q", dir))
+	}
+	return nil
+}
+
+// batchSafe refuses paths with characters cmd.exe treats specially. .cmd/.bat
+// launchers (the editors' PATH shims) re-parse their arguments with those
+// rules, so an unquoted & or | would start another command.
+func batchSafe(dir string) error {
+	if i := strings.IndexAny(dir, "&|<>^%\"!\r\n"); i >= 0 {
+		return badRequest(fmt.Sprintf("refusing directory with shell metacharacter %q for a batch launcher: %q", dir[i], dir))
+	}
+	return nil
+}
+
+// editorCommand builds the editor process. A real executable receives the
+// path as one argument; a .cmd/.bat shim only if the path is batch-safe.
+func editorCommand(path, dir string) (spec, error) {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".cmd", ".bat":
+		if err := batchSafe(dir); err != nil {
+			return spec{}, err
+		}
+	}
+	return spec{Name: path, Args: []string{dir}}, nil
+}
+
+// terminalCommand builds the process that opens a terminal in dir, optionally
 // running `claude --resume <id>`. The id is validated because it ends up in a
 // shell command line.
-func terminalArgv(goos, dir, resumeID string) ([]string, error) {
+func terminalCommand(goos, dir, resumeID string) (spec, error) {
 	if resumeID != "" && !safeID.MatchString(resumeID) {
-		return nil, fmt.Errorf("refusing unsafe session id %q", resumeID)
+		return spec{}, badRequest(fmt.Sprintf("refusing unsafe session id %q", resumeID))
 	}
 	switch goos {
 	case "windows":
-		argv := []string{"cmd", "/c", "start", "", "/D", dir, "powershell", "-NoExit"}
+		// No cmd.exe: the directory is the working directory of the new console.
+		sp := spec{Name: "powershell.exe", Args: []string{"-NoExit"}, Dir: dir, NewConsole: true}
 		if resumeID != "" {
-			argv = append(argv, "-Command", "claude --resume "+resumeID)
+			sp.Args = append(sp.Args, "-Command", "claude --resume "+resumeID)
 		}
-		return argv, nil
+		return sp, nil
 	case "darwin":
 		if resumeID == "" {
-			return []string{"open", "-a", "Terminal", dir}, nil
+			return spec{Name: "open", Args: []string{"-a", "Terminal", dir}}, nil
 		}
 		script := "cd " + shellQuote(dir) + " && claude --resume " + resumeID
-		return []string{"osascript",
+		return spec{Name: "osascript", Args: []string{
 			"-e", `tell application "Terminal" to do script "` + appleScriptEscape(script) + `"`,
-			"-e", `tell application "Terminal" to activate`}, nil
+			"-e", `tell application "Terminal" to activate`}}, nil
 	}
-	return nil, fmt.Errorf("opening a terminal is not supported on %s", goos)
+	return spec{}, fmt.Errorf("opening a terminal is not supported on %s", goos)
 }
 
 func shellQuote(s string) string {
