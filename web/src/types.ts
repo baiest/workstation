@@ -53,6 +53,35 @@ export interface BranchesResponse {
   warnings: string[]
 }
 
+export interface CleanupCandidate {
+  branch: string
+  sha: string
+  prNumber: number
+  prTitle: string
+  prUrl?: string
+  mergedAt: string
+}
+
+export interface CleanupSkipped {
+  branch: string
+  prNumber: number
+  reason: string
+}
+
+export interface CleanupPreview {
+  days: number
+  candidates: CleanupCandidate[]
+  skipped: CleanupSkipped[]
+  warnings: string[]
+}
+
+export interface DeleteResult {
+  branch: string
+  sha: string
+  deleted: boolean
+  error?: string
+}
+
 export interface PlanData {
   slug: string
   path: string

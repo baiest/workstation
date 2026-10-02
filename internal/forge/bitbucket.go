@@ -18,12 +18,15 @@ type BitbucketCloud struct {
 
 type cloudPage struct {
 	Values []struct {
-		ID           int                                    `json:"id"`
-		Title        string                                 `json:"title"`
-		State        string                                 `json:"state"`
-		Draft        bool                                   `json:"draft"`
-		UpdatedOn    string                                 `json:"updated_on"`
-		Source       struct{ Branch struct{ Name string } } `json:"source"`
+		ID        int    `json:"id"`
+		Title     string `json:"title"`
+		State     string `json:"state"`
+		Draft     bool   `json:"draft"`
+		UpdatedOn string `json:"updated_on"`
+		Source    struct {
+			Branch struct{ Name string }
+			Commit struct{ Hash string }
+		} `json:"source"`
 		Destination  struct{ Branch struct{ Name string } } `json:"destination"`
 		Links        struct{ HTML struct{ Href string } }   `json:"links"`
 		Participants []struct {
@@ -58,8 +61,12 @@ func (b *BitbucketCloud) PullRequests(ctx context.Context) ([]PR, error) {
 			pr := PR{
 				Number: v.ID, Title: v.Title, URL: safeURL(v.Links.HTML.Href), Draft: v.Draft,
 				Source: v.Source.Branch.Name, Dest: v.Destination.Branch.Name, State: cloudState(v.State),
+				HeadSHA: v.Source.Commit.Hash,
 			}
 			pr.UpdatedAt, _ = time.Parse(time.RFC3339, v.UpdatedOn)
+			if pr.State == StateMerged {
+				pr.MergedAt = pr.UpdatedAt // Cloud has no merge date in this payload; the last update of a merged PR is the closest
+			}
 			reviewers := 0
 			for _, pt := range v.Participants {
 				if pt.Role == "REVIEWER" {
@@ -108,8 +115,10 @@ type serverPage struct {
 		State       string `json:"state"`
 		Draft       bool   `json:"draft"`
 		UpdatedDate int64  `json:"updatedDate"`
+		ClosedDate  int64  `json:"closedDate"`
 		FromRef     struct {
-			DisplayID string `json:"displayId"`
+			DisplayID    string `json:"displayId"`
+			LatestCommit string `json:"latestCommit"`
 		} `json:"fromRef"`
 		ToRef struct {
 			DisplayID string `json:"displayId"`
@@ -140,7 +149,10 @@ func (b *BitbucketServer) PullRequests(ctx context.Context) ([]PR, error) {
 		for _, v := range p.Values {
 			pr := PR{
 				Number: v.ID, Title: v.Title, Draft: v.Draft, State: serverState(v.State),
-				Source: v.FromRef.DisplayID, Dest: v.ToRef.DisplayID,
+				Source: v.FromRef.DisplayID, Dest: v.ToRef.DisplayID, HeadSHA: v.FromRef.LatestCommit,
+			}
+			if pr.State == StateMerged && v.ClosedDate > 0 {
+				pr.MergedAt = time.UnixMilli(v.ClosedDate)
 			}
 			if len(v.Links.Self) > 0 {
 				pr.URL = safeURL(v.Links.Self[0].Href)

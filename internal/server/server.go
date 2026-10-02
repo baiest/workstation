@@ -28,6 +28,7 @@ type Server struct {
 	web      fs.FS
 	plans    PlanReader
 	branches BranchService
+	cleanup  CleanupService
 
 	mu     sync.Mutex
 	last   *workspace.Workspace // snapshot actions are validated against
@@ -40,6 +41,7 @@ type Option func(*options)
 type options struct {
 	plans    PlanReader
 	branches BranchService
+	cleanup  CleanupService
 }
 
 // PlanReader loads a session's plan by slug (implemented by claude.CLI).
@@ -97,8 +99,10 @@ func New(build BuildFunc, launcher Launcher, web fs.FS, opts ...Option) http.Han
 	for _, opt := range opts {
 		opt(&o)
 	}
-	s := &Server{build: build, launcher: launcher, web: web, plans: o.plans, branches: o.branches}
+	s := &Server{build: build, launcher: launcher, web: web, plans: o.plans, branches: o.branches, cleanup: o.cleanup}
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/cleanup", s.handleCleanupPreview)
+	mux.HandleFunc("POST /api/cleanup", s.handleCleanupDelete)
 	mux.HandleFunc("GET /api/workspace", s.handleWorkspace)
 	mux.HandleFunc("GET /api/plan", s.handlePlan)
 	mux.HandleFunc("GET /api/branches", s.handleBranches)
@@ -275,14 +279,8 @@ func (s *Server) handleBranches(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	wts := map[string]branches.Worktree{}
-	for _, wt := range repo.Worktrees {
-		if wt.Branch != "" {
-			wts[wt.Branch] = branches.Worktree{Name: wt.Name, Path: wt.Path}
-		}
-	}
 	q := r.URL.Query()
-	resp, err := s.branches.Graph(repo.Path, wts, q.Get("merged") == "1", q.Get("refresh") == "1")
+	resp, err := s.branches.Graph(repo.Path, worktreesByBranch(repo), q.Get("merged") == "1", q.Get("refresh") == "1")
 	if errors.Is(err, branches.ErrNoDefaultBranch) {
 		http.Error(w, branches.ErrNoDefaultBranch.Error(), http.StatusUnprocessableEntity)
 		return

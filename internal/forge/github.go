@@ -18,7 +18,7 @@ type GitHub struct {
 // statusCheckRollup is slow to resolve on GitHub's side (seconds for 100 PRs),
 // so it is requested separately and only for open PRs.
 const (
-	ghFields      = "number,title,state,headRefName,baseRefName,isDraft,reviewDecision,updatedAt,url,latestReviews"
+	ghFields      = "number,title,state,headRefName,baseRefName,isDraft,reviewDecision,updatedAt,mergedAt,headRefOid,url,latestReviews"
 	ghCheckFields = "number,statusCheckRollup"
 )
 
@@ -31,6 +31,8 @@ type ghPR struct {
 	IsDraft        bool   `json:"isDraft"`
 	ReviewDecision string `json:"reviewDecision"`
 	UpdatedAt      string `json:"updatedAt"`
+	MergedAt       string `json:"mergedAt"`
+	HeadRefOid     string `json:"headRefOid"`
 	URL            string `json:"url"`
 	Checks         []struct {
 		Typename   string `json:"__typename"`
@@ -62,6 +64,10 @@ func (g *GitHub) PullRequests(context.Context) ([]PR, error) {
 			Checks: checks[r.Number],
 		}
 		pr.UpdatedAt, _ = time.Parse(time.RFC3339, r.UpdatedAt)
+		pr.HeadSHA = r.HeadRefOid
+		if pr.State == StateMerged {
+			pr.MergedAt, _ = time.Parse(time.RFC3339, r.MergedAt)
+		}
 		for _, rv := range r.LatestReviews {
 			switch rv.State {
 			case "APPROVED":

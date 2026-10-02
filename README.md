@@ -18,6 +18,8 @@ ahead / behind), last commit, and the linked Claude session (status, last activi
 - **Branch graph** — the active branches of a repo as a tree: which depends on which, with PR status
   (open / draft / merged / declined), approvals, review state and checks. Zoom (buttons, **Ctrl + wheel**, *Fit*) and
   search (branch, worktree, PR title or `#number`; **Enter** jumps to the next match).
+- **Branch cleanup** — one button deletes local branches whose PR was merged long ago, after you review the list
+  ([details](#branch-cleanup)).
 - **Hide projects** you do not care about (**Hide** next to the project name; restore them from "Hidden projects").
   Remembered in the browser; hidden projects are not queried for PRs.
 - **UI size** with **A−** / **A+** in the header (also browser zoom).
@@ -195,6 +197,31 @@ A branch's parent (the arrow into it) is decided in this order, and the graph sa
 Limits of the inference: a branch cut from a commit that its parent has since moved past (rebase, force-push)
 no longer has that parent as an ancestor, so it falls back to the default branch.
 
+### Branch cleanup
+
+**Branches tab → "Clean up branches…"** opens a preview; nothing is deleted until you confirm. A local branch is
+offered only when **all** of these hold:
+
+- its pull request is **merged** (from GitHub / Bitbucket; with no PR data nothing is offered),
+- it was merged at least **N days ago** (default 30, editable),
+- the branch **has no commits beyond what the PR merged**: its tip is the PR's head commit, or it is already
+  contained in the default branch,
+- it is not the default branch, has no worktree checked out, and has no newer open PR with the same name.
+
+Everything else with a merged PR is listed under "Kept" with the reason. You untick what you want to keep and confirm.
+
+Safety, enforced on the server and not just in the page:
+
+- the request is never trusted: eligibility is **recomputed with fresh PR data** at deletion time, and each branch is
+  deleted only if it **still points at the commit you were shown** (otherwise "the preview is out of date");
+- only **local** branches are deleted (`git branch -D`, which git itself refuses for a checked-out branch).
+  Remote branches are never touched;
+- afterwards it prints `git branch <name> <sha>` for each deleted branch; the commits stay in git until garbage
+  collected, so that restores it.
+
+Limits: only the last 100 GitHub PRs are known, so older branches are not offered; Bitbucket Cloud's payload has no
+merge date, so its last-update time is used instead.
+
 ### Pull requests
 
 PRs are fetched when the page loads (in the background) and cached for 60 s per repo; Refresh bypasses the cache.
@@ -276,6 +303,8 @@ for the threat model and how to report a problem.
   containing `& | < > ^ % " !`. Resume: a terminal in the session's directory running `claude --resume <id>`.
 - git runs with `core.fsmonitor`, hooks and the pager disabled (a repo's own config can name commands), a 30 s timeout
   that kills the whole process tree, and branch names always qualified as `refs/heads/...`. `gh` has a 25 s timeout.
+- The only destructive action is branch cleanup (see [Branch cleanup](#branch-cleanup)): local branches only,
+  re-verified server-side, with the previewed commit as a compare-and-delete guard.
 - Local files are read with size limits (1 MiB for JSON, 1 MiB per transcript line), and a symlink in `plans/` is
   not served as a plan.
 - **Accepted risk: no authentication.** Any process or user on the same machine can read the data and press the

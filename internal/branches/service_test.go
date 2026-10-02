@@ -3,6 +3,7 @@ package branches
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -96,6 +97,57 @@ func TestServiceDetectErrors(t *testing.T) {
 	noRemote.RemoteURL = func(string) (string, error) { return "", errors.New("no origin") }
 	if r, err := noRemote.Graph(repo, nil, false, false); err != nil || len(r.Warnings) != 0 {
 		t.Fatalf("repo without origin should be silent: %+v %v", r, err)
+	}
+}
+
+func TestServiceCleanupPreviewUsesCacheButDeleteIsFresh(t *testing.T) {
+	t.Parallel()
+	f := newCleanupFixture(t)
+	fp := &fakeProvider{prs: f.prs}
+	now := f.now
+	s := newService(fp, nil, &now)
+
+	p, err := s.CleanupPreview(f.repo, f.in.Worktrees, 0, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(candidateNames(p.CleanupPreview), ",") != "old-ancestor,old-squash" || len(p.Warnings) != 0 {
+		t.Fatalf("preview: %+v", p)
+	}
+	if _, err := s.CleanupPreview(f.repo, f.in.Worktrees, 0, false); err != nil || fp.calls != 1 {
+		t.Fatalf("a second preview within the TTL may use the cache, calls=%d err=%v", fp.calls, err)
+	}
+
+	var sha string
+	for _, c := range p.Candidates {
+		if c.Branch == "old-squash" {
+			sha = c.SHA
+		}
+	}
+	results, err := s.CleanupDelete(f.repo, f.in.Worktrees, 0, []DeleteRequest{{Branch: "old-squash", SHA: sha}})
+	if err != nil || len(results) != 1 || !results[0].Deleted {
+		t.Fatalf("delete: %+v %v", results, err)
+	}
+	if fp.calls != 2 {
+		t.Fatalf("deleting must re-fetch the pull requests instead of trusting the cache, calls=%d", fp.calls)
+	}
+}
+
+// If the PRs cannot be read there is nothing to prove a branch is merged, so
+// nothing may be offered or deleted.
+func TestServiceCleanupWithoutPullRequestsDeletesNothing(t *testing.T) {
+	t.Parallel()
+	f := newCleanupFixture(t)
+	now := f.now
+	s := newService(&fakeProvider{err: errors.New("gh: not logged in")}, nil, &now)
+
+	p, err := s.CleanupPreview(f.repo, f.in.Worktrees, 0, false)
+	if err != nil || len(p.Candidates) != 0 || len(p.Warnings) != 1 {
+		t.Fatalf("preview must be empty with a warning: %+v %v", p, err)
+	}
+	results, err := s.CleanupDelete(f.repo, f.in.Worktrees, 0, []DeleteRequest{{Branch: "old-squash", SHA: "x"}})
+	if err != nil || results[0].Deleted {
+		t.Fatalf("nothing may be deleted without PR data: %+v %v", results, err)
 	}
 }
 

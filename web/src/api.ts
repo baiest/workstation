@@ -1,4 +1,4 @@
-import type { BranchesResponse, PlanData, WorkspaceData } from './types'
+import type { BranchesResponse, CleanupPreview, DeleteResult, PlanData, WorkspaceData } from './types'
 
 export async function fetchWorkspace(): Promise<WorkspaceData> {
   const res = await fetch('/api/workspace', { cache: 'no-store' })
@@ -20,7 +20,26 @@ export const fetchBranches = (repo: string, opts: { merged?: boolean; refresh?: 
     `/api/branches?repo=${encodeURIComponent(repo)}${opts.merged ? '&merged=1' : ''}${opts.refresh ? '&refresh=1' : ''}`,
   )
 
-export type Action ='terminal' | 'editor' | 'resume'
+/** Branches that could be deleted (merged PR, old enough). Changes nothing. */
+export const fetchCleanup = (repo: string, days: number) =>
+  getJSON<CleanupPreview>(`/api/cleanup?repo=${encodeURIComponent(repo)}&days=${days}&refresh=1`)
+
+/** Deletes the chosen local branches; the server re-checks each one before touching it. */
+export async function runCleanup(
+  repo: string,
+  days: number,
+  branches: { branch: string; sha: string }[],
+): Promise<DeleteResult[]> {
+  const res = await fetch('/api/cleanup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ repo, days, branches }),
+  })
+  if (!res.ok) throw new Error((await res.text()).trim() || `${res.status}`)
+  return (await res.json()).results as DeleteResult[]
+}
+
+export type Action = 'terminal' | 'editor' | 'resume'
 
 export async function runAction(action: Action, body: { path?: string; sessionId?: string }): Promise<void> {
   const res = await fetch(`/api/actions/${action}`, {

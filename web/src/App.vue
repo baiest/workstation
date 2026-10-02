@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { fetchBranches, fetchWorkspace, runAction, type Action } from './api'
 import BranchGraph from './components/BranchGraph.vue'
+import CleanupModal from './components/CleanupModal.vue'
 import PlanModal from './components/PlanModal.vue'
 import WorktreeCard from './components/WorktreeCard.vue'
 import { matchesFilter, relativeTime, statusLabel } from './format'
@@ -27,6 +28,7 @@ const loading = ref(false)
 const query = ref('')
 const filterEl = ref<HTMLInputElement | null>(null)
 const planFor = ref<{ id: string; title: string } | null>(null)
+const cleanupFor = ref<Repo | null>(null)
 const tabs = reactive<Record<string, Tab>>(loadTabs())
 const branchState = reactive<Record<string, BranchState>>({})
 
@@ -152,10 +154,10 @@ function onKey(e: KeyboardEvent) {
   if (e.key === '/' && !typing) {
     e.preventDefault()
     filterEl.value?.focus()
-  } else if (e.key === 'Escape' && !planFor.value) {
+  } else if (e.key === 'Escape' && !planFor.value && !cleanupFor.value) {
     query.value = ''
     filterEl.value?.blur()
-  } else if (e.key === 'r' && !typing && !planFor.value) {
+  } else if (e.key === 'r' && !typing && !planFor.value && !cleanupFor.value) {
     refresh()
   }
 }
@@ -219,10 +221,15 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
         <p v-if="branchState[repo.path]?.error" class="banner err">Could not load branches: {{ branchState[repo.path].error }}</p>
         <p v-if="!branchState[repo.path]?.data && !branchState[repo.path]?.error" class="muted">Loading branches and pull requests…</p>
         <template v-if="branchState[repo.path]?.data">
-          <label class="toggle muted">
-            <input type="checkbox" :checked="branchState[repo.path].merged" @change="toggleMerged(repo)" />
-            Show recently merged (30 days)
-          </label>
+          <div class="branch-actions">
+            <label class="toggle muted">
+              <input type="checkbox" :checked="branchState[repo.path].merged" @change="toggleMerged(repo)" />
+              Show recently merged (30 days)
+            </label>
+            <button data-cleanup title="Delete local branches whose PR was merged long ago (you review the list first)" @click="cleanupFor = repo">
+              Clean up branches…
+            </button>
+          </div>
           <BranchGraph
             :graph="branchState[repo.path].data!.graph"
             :worktrees="repo.all"
@@ -279,4 +286,11 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
   </main>
 
   <PlanModal v-if="planFor" :session-id="planFor.id" :title="planFor.title" @close="planFor = null" />
+  <CleanupModal
+    v-if="cleanupFor"
+    :repo="cleanupFor.path"
+    :repo-name="cleanupFor.name"
+    @close="cleanupFor = null"
+    @deleted="loadBranches(cleanupFor!, true)"
+  />
 </template>

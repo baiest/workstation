@@ -49,9 +49,11 @@ func run(addr, cfgPath string) error {
 	provider := claude.Combined{CLI: cli, Desktop: claude.NewDesktop(claude.DesktopRoots())}
 	builder := workspace.Builder{Provider: provider, ExtraRepos: cfg.Repos}
 
+	branchSvc := branches.NewService(forge.DefaultDeps(cfg.Forges))
 	handler := server.New(builder.Build, server.OSLauncher{}, web.Dist(),
 		server.WithPlans(cli),
-		server.WithBranches(branches.NewService(forge.DefaultDeps(cfg.Forges))),
+		server.WithBranches(branchSvc),
+		server.WithCleanup(branchSvc),
 	)
 	log.Printf("workstation listening on http://%s", addr)
 	return server.NewHTTPServer(addr, handler).ListenAndServe()

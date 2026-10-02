@@ -177,3 +177,20 @@ section h2 .path { font-weight: 400; text-transform: none; letter-spacing: 0; }
 
 .hide-btn { margin-left: 0.4rem; text-transform: none; letter-spacing: 0; color: var(--muted); }
 .hide-btn:hover { color: var(--accent); }
+
+/* branch cleanup */
+.branch-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.6rem; margin-bottom: 0.2rem; }
+.branch-actions .toggle { margin-bottom: 0; }
+button.danger { border-color: var(--danger); color: var(--danger); }
+button.danger:hover:not(:disabled) { background: var(--danger); border-color: var(--danger); color: #fff; }
+.cleanup .days { width: 4.6rem; font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 0.35rem; padding: 0.1rem 0.4rem; }
+.cleanup .bulk { display: flex; gap: 0.6rem; margin: 0.4rem 0; }
+.cleanup ul { list-style: none; margin: 0.3rem 0; padding: 0; }
+.cleanup .candidates li { display: grid; grid-template-columns: minmax(11rem, 1.3fr) 2fr auto auto; align-items: center; gap: 0.8rem; padding: 0.35rem 0; border-bottom: 1px solid var(--border); font-size: 0.93rem; }
+.cleanup .candidates label { display: flex; align-items: center; gap: 0.5rem; min-width: 0; cursor: pointer; }
+.cleanup .skipped { margin-top: 0.8rem; color: var(--muted); }
+.cleanup .skipped li { padding: 0.15rem 0; }
+.cleanup footer { display: flex; gap: 0.6rem; margin-top: 1rem; }
+.cleanup .results li { display: flex; gap: 0.7rem; align-items: baseline; padding: 0.15rem 0; }
+.cleanup .restore { background: var(--panel); border: 1px solid var(--border); border-radius: 0.45rem; padding: 0.6rem 0.8rem; overflow: auto; user-select: all; }
+.cleanup .ok { color: var(--working); }

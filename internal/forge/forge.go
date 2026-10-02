@@ -84,6 +84,8 @@ type PR struct {
 	Review           string    `json:"review,omitempty"` // approved | changes_requested | review_required | ""
 	Checks           string    `json:"checks,omitempty"` // success | failure | pending | "" (unknown)
 	UpdatedAt        time.Time `json:"updatedAt"`
+	HeadSHA          string    `json:"headSha,omitempty"` // tip of the source branch when the PR was last updated
+	MergedAt         time.Time `json:"mergedAt,omitzero"` // zero unless merged
 }
 
 type Provider interface {

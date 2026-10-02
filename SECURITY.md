@@ -30,6 +30,9 @@ What the app defends against:
 - **Hostile API responses**: bounded response size, `http(s)`-only PR links, pagination never leaves the original host,
   credentials only from environment variables with an allowed prefix and only to the configured `https` host.
 - **Resource exhaustion**: server and process timeouts, bounded file and line reads, one shared workspace build.
+- **The one destructive action, branch cleanup**: it only deletes local branches, only ones whose merged PR is old and
+  that hold no extra commits, re-checks everything server-side with fresh PR data, deletes a branch only if it is
+  still at the commit shown in the preview, and never touches remotes, the default branch or checked-out branches.
 
 Deliberately **not** defended (accepted risk):
 

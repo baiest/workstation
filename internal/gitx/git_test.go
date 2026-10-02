@@ -142,6 +142,68 @@ func TestBranchHelpersIgnoreSameNamedTags(t *testing.T) {
 	}
 }
 
+func TestBranchTip(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	repo := t.TempDir()
+	mustGit(t, repo, "init", "-b", "main")
+	commitFile(t, repo, "a.txt", "1", "c1")
+	mustGit(t, repo, "tag", "main") // a tag with the branch's name must not confuse it
+
+	tip, err := BranchTip(repo, "main")
+	if err != nil || len(tip) != 40 {
+		t.Fatalf("BranchTip = %q, %v", tip, err)
+	}
+	if _, err := BranchTip(repo, "nope"); err == nil {
+		t.Error("an unknown branch must be an error")
+	}
+	if _, err := BranchTip(repo, "--all"); err == nil {
+		t.Error("an option-looking name must be refused")
+	}
+}
+
+func TestDeleteBranch(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	repo := t.TempDir()
+	mustGit(t, repo, "init", "-b", "main")
+	commitFile(t, repo, "a.txt", "1", "c1")
+	for _, b := range []string{"gone", "moved", "checked-out"} {
+		mustGit(t, repo, "branch", b)
+	}
+	mustGit(t, repo, "checkout", "checked-out")
+	main, _ := BranchTip(repo, "main")
+
+	// happy path: expected tip matches
+	if err := DeleteBranch(repo, "gone", main); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if _, err := BranchTip(repo, "gone"); err == nil {
+		t.Fatal("branch should be gone")
+	}
+
+	// the branch moved since the preview: refuse, keep it
+	if err := DeleteBranch(repo, "moved", "0000000000000000000000000000000000000000"); err == nil {
+		t.Fatal("a branch whose tip differs from the previewed one must not be deleted")
+	}
+	if _, err := BranchTip(repo, "moved"); err != nil {
+		t.Fatal("the branch must still exist")
+	}
+
+	// git itself refuses a checked-out branch
+	if err := DeleteBranch(repo, "checked-out", main); err == nil {
+		t.Fatal("a checked-out branch must not be deleted")
+	}
+
+	for _, bad := range []string{"", "-D", "--all", "a b", "x..y"} {
+		if err := DeleteBranch(repo, bad, main); err == nil {
+			t.Errorf("name %q must be refused", bad)
+		}
+	}
+}
+
 func TestDefaultBranchRejectsOddNames(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not installed")

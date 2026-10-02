@@ -489,6 +489,121 @@ func TestBranchesEndpoint(t *testing.T) {
 	}
 }
 
+type fakeCleanup struct {
+	repo    string
+	wts     map[string]branches.Worktree
+	days    int
+	refresh bool
+	req     []branches.DeleteRequest
+	deletes int
+	err     error
+}
+
+func (f *fakeCleanup) CleanupPreview(repo string, wts map[string]branches.Worktree, days int, refresh bool) (branches.CleanupResponse, error) {
+	f.repo, f.wts, f.days, f.refresh = repo, wts, days, refresh
+	return branches.CleanupResponse{
+		CleanupPreview: branches.CleanupPreview{Days: 30, Candidates: []branches.Candidate{{Branch: "old", SHA: "abc", PRNumber: 3}}},
+		Warnings:       []string{},
+	}, f.err
+}
+
+func (f *fakeCleanup) CleanupDelete(repo string, wts map[string]branches.Worktree, days int, req []branches.DeleteRequest) ([]branches.DeleteResult, error) {
+	f.repo, f.wts, f.days, f.req = repo, wts, days, req
+	f.deletes++
+	var out []branches.DeleteResult
+	for _, r := range req {
+		out = append(out, branches.DeleteResult{Branch: r.Branch, SHA: r.SHA, Deleted: true})
+	}
+	return out, f.err
+}
+
+func TestCleanupPreviewEndpoint(t *testing.T) {
+	fc := &fakeCleanup{}
+	h, dir := newServerWith(t, WithCleanup(fc))
+
+	rec := do(h, http.MethodGet, "/api/cleanup?repo=/r&days=45&refresh=1", "", nil)
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"branch":"old"`) {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+	if fc.repo != "/r" || fc.days != 45 || !fc.refresh {
+		t.Errorf("args: %+v", fc)
+	}
+	if w, ok := fc.wts["feat"]; !ok || w.Path != dir {
+		t.Errorf("worktrees (never deleted) must be passed: %+v", fc.wts)
+	}
+
+	if rec := do(h, http.MethodGet, "/api/cleanup?repo=/r&days=abc", "", nil); rec.Code != 400 {
+		t.Errorf("a non-numeric days must be 400, got %d", rec.Code)
+	}
+	if rec := do(h, http.MethodGet, "/api/cleanup?repo=/etc", "", nil); rec.Code != 400 {
+		t.Errorf("repo outside the snapshot must be 400, got %d", rec.Code)
+	}
+	none, _ := newServerWith(t)
+	if rec := do(none, http.MethodGet, "/api/cleanup?repo=/r", "", nil); rec.Code != 404 {
+		t.Errorf("no cleanup service must be 404, got %d", rec.Code)
+	}
+}
+
+func TestCleanupPreviewErrors(t *testing.T) {
+	h, _ := newServerWith(t, WithCleanup(&fakeCleanup{err: fmt.Errorf("x: %w", branches.ErrNoDefaultBranch)}))
+	if rec := do(h, http.MethodGet, "/api/cleanup?repo=/r", "", nil); rec.Code != 422 || !strings.Contains(rec.Body.String(), "default branch") {
+		t.Errorf("%d %q", rec.Code, rec.Body)
+	}
+	h2, _ := newServerWith(t, WithCleanup(&fakeCleanup{err: errors.New(`C:\secret-repo: boom`)}))
+	if rec := do(h2, http.MethodGet, "/api/cleanup?repo=/r", "", nil); rec.Code != 500 || strings.Contains(rec.Body.String(), "secret-repo") {
+		t.Errorf("%d %q", rec.Code, rec.Body)
+	}
+}
+
+func TestCleanupDeleteEndpoint(t *testing.T) {
+	fc := &fakeCleanup{}
+	h, _ := newServerWith(t, WithCleanup(fc))
+	body := `{"repo":"/r","days":30,"branches":[{"branch":"old","sha":"abc"},{"branch":"older","sha":"def"}]}`
+
+	rec := do(h, http.MethodPost, "/api/cleanup", body, nil)
+	if rec.Code != 200 {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+	var got struct {
+		Results []branches.DeleteResult `json:"results"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || len(got.Results) != 2 || !got.Results[0].Deleted {
+		t.Fatalf("results: %s %v", rec.Body, err)
+	}
+	if fc.repo != "/r" || fc.days != 30 || len(fc.req) != 2 || fc.req[0].SHA != "abc" {
+		t.Errorf("service args: %+v", fc)
+	}
+
+	// refused before reaching the service
+	bad := map[string]string{
+		"unknown repo": `{"repo":"/etc","branches":[{"branch":"x","sha":"y"}]}`,
+		"bad json":     `{nope`,
+		"nothing sent": `{"repo":"/r","branches":[]}`,
+		"too many":     `{"repo":"/r","branches":[` + strings.TrimSuffix(strings.Repeat(`{"branch":"b","sha":"s"},`, 201), ",") + `]}`,
+		"empty branch": `{"repo":"/r","branches":[{"branch":"","sha":"y"}]}`,
+		"dash branch":  `{"repo":"/r","branches":[{"branch":"-D","sha":"y"}]}`,
+	}
+	before := fc.deletes
+	for name, b := range bad {
+		if rec := do(h, http.MethodPost, "/api/cleanup", b, nil); rec.Code != 400 {
+			t.Errorf("%s: want 400, got %d %s", name, rec.Code, rec.Body)
+		}
+	}
+	if fc.deletes != before {
+		t.Fatalf("a refused request must not reach the service")
+	}
+
+	if rec := do(h, http.MethodPost, "/api/cleanup", body, map[string]string{"Content-Type": "text/plain"}); rec.Code != 415 {
+		t.Errorf("non-JSON must be 415, got %d", rec.Code)
+	}
+	if rec := do(h, http.MethodPost, "/api/cleanup", body, map[string]string{"Sec-Fetch-Site": "cross-site"}); rec.Code != 403 {
+		t.Errorf("cross-site must be 403, got %d", rec.Code)
+	}
+	if rec := do(h, http.MethodPost, "/api/cleanup", body, map[string]string{"Origin": "http://evil.example"}); rec.Code != 403 {
+		t.Errorf("foreign origin must be 403, got %d", rec.Code)
+	}
+}
+
 func TestStaticFiles(t *testing.T) {
 	h, _, _, _ := newTestServer(t)
 	if rec := do(h, http.MethodGet, "/", "", nil); rec.Code != 200 || !strings.Contains(rec.Body.String(), "ok") {

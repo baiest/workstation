@@ -146,6 +146,37 @@ func LocalBranches(dir string) ([]Branch, error) {
 	return list, nil
 }
 
+// BranchTip returns the commit a local branch points at.
+func BranchTip(dir, name string) (string, error) {
+	if name == "" || strings.HasPrefix(name, "-") {
+		return "", fmt.Errorf("invalid branch name %q", name)
+	}
+	out, err := run(dir, "rev-parse", "--verify", "--quiet", heads(name)+"^{commit}")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
+// DeleteBranch deletes the local branch name, but only if it still points at
+// expectedSHA (what the user was shown), so a branch that moved in the
+// meantime is never lost. Git itself refuses a branch checked out in any
+// worktree. Remote branches are never touched.
+func DeleteBranch(dir, name, expectedSHA string) error {
+	if !validBranchName(dir, name) {
+		return fmt.Errorf("invalid branch name %q", name)
+	}
+	tip, err := BranchTip(dir, name)
+	if err != nil {
+		return err
+	}
+	if tip != expectedSHA {
+		return fmt.Errorf("branch %q moved since it was listed (now %s); not deleting", name, tip)
+	}
+	_, err = run(dir, "branch", "-D", "--", name)
+	return err
+}
+
 // NoMerged returns the local branches that are not fully merged into base.
 func NoMerged(dir, base string) (map[string]bool, error) {
 	out, err := run(dir, "branch", "--no-merged", heads(base), "--format=%(refname:lstrip=2)")

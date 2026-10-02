@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"workstation/internal/config"
 )
@@ -234,6 +235,53 @@ func TestBitbucketServer(t *testing.T) {
 	}
 	if c.State != StateMerged || c.UpdatedAt.IsZero() {
 		t.Errorf("C: %+v", c)
+	}
+}
+
+// Branch cleanup needs to know when a PR merged and which commit it merged, so
+// a branch with later commits is never deleted.
+func TestMergeMetadata(t *testing.T) {
+	gh := &GitHub{Run: func(_ string, args ...string) ([]byte, error) {
+		return []byte(`[{"number":7,"title":"t","state":"MERGED","headRefName":"a","baseRefName":"main","updatedAt":"2026-10-02T10:00:00Z","mergedAt":"2026-09-01T12:00:00Z","headRefOid":"abc123def4567890","url":"https://x/7","latestReviews":[]},
+		 {"number":8,"title":"open","state":"OPEN","headRefName":"b","baseRefName":"main","updatedAt":"2026-10-02T10:00:00Z","mergedAt":null,"headRefOid":"ffff000011112222","url":"https://x/8","latestReviews":[]}]`), nil
+	}}
+	prs, err := gh.PullRequests(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prs[0].HeadSHA != "abc123def4567890" || !prs[0].MergedAt.Equal(time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)) {
+		t.Errorf("github merged PR: %+v", prs[0])
+	}
+	if !prs[1].MergedAt.IsZero() || prs[1].HeadSHA != "ffff000011112222" {
+		t.Errorf("github open PR must have no merge date: %+v", prs[1])
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/2.0/") {
+			_, _ = w.Write([]byte(`{"values":[
+			 {"id":1,"state":"MERGED","source":{"branch":{"name":"a"},"commit":{"hash":"deadbeef0001"}},"destination":{"branch":{"name":"main"}},"updated_on":"2026-08-01T10:00:00.000000+00:00","participants":[]},
+			 {"id":2,"state":"OPEN","source":{"branch":{"name":"b"},"commit":{"hash":"cafe00000002"}},"destination":{"branch":{"name":"main"}},"updated_on":"2026-08-02T10:00:00.000000+00:00","participants":[]}]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"values":[
+		 {"id":1,"state":"MERGED","fromRef":{"displayId":"a","latestCommit":"deadbeef0003"},"toRef":{"displayId":"main"},"closedDate":1788000000000,"updatedDate":1790000000000,"reviewers":[]},
+		 {"id":2,"state":"OPEN","fromRef":{"displayId":"b","latestCommit":"cafe00000004"},"toRef":{"displayId":"main"},"updatedDate":1790000000000,"reviewers":[]}],"isLastPage":true}`))
+	}))
+	defer srv.Close()
+
+	cloud, err := (&BitbucketCloud{Base: srv.URL, Workspace: "w", Repo: "r", Client: srv.Client()}).PullRequests(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cloud[0].HeadSHA != "deadbeef0001" || cloud[0].MergedAt.IsZero() || !cloud[1].MergedAt.IsZero() {
+		t.Errorf("cloud: %+v", cloud)
+	}
+	server, err := (&BitbucketServer{Base: srv.URL, Project: "P", Repo: "r", Token: "t", Client: srv.Client()}).PullRequests(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if server[0].HeadSHA != "deadbeef0003" || !server[0].MergedAt.Equal(time.UnixMilli(1788000000000)) || !server[1].MergedAt.IsZero() {
+		t.Errorf("server: %+v", server)
 	}
 }
 
