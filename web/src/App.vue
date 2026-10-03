@@ -5,8 +5,8 @@ import BranchGraph from './components/BranchGraph.vue'
 import CleanupModal from './components/CleanupModal.vue'
 import PlanModal from './components/PlanModal.vue'
 import SessionsModal from './components/SessionsModal.vue'
+import StageBoard from './components/StageBoard.vue'
 import TicketList from './components/TicketList.vue'
-import WorktreeCard from './components/WorktreeCard.vue'
 import WorktreeCleanupModal from './components/WorktreeCleanupModal.vue'
 import ActiveSessions from './components/ActiveSessions.vue'
 import { activeSessions } from './active'
@@ -324,20 +324,17 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
           Clean up worktrees…<span v-if="removableCount(repo)" class="count"> ({{ removableCount(repo) }} merged)</span>
         </button>
       </div>
-      <div v-if="tabOf(repo) === 'worktrees'" class="grid">
-        <WorktreeCard
-          v-for="wt in repo.worktrees"
-          :key="wt.path"
-          :worktree="wt"
-          :editor="data!.capabilities.editor"
-          :pr="prFor(repo, wt.branch)"
-          @terminal="(p) => act('terminal', { path: p })"
-          @editor="(p) => act('editor', { path: p })"
-          @resume="(id) => resumeSession(id)"
-          @plan="(id) => (planFor = { id, title: wt.name })"
-          @sessions="(p) => openSessions(repo, p)"
-        />
-      </div>
+      <StageBoard
+        v-if="tabOf(repo) === 'worktrees'"
+        :worktrees="repo.worktrees"
+        :editor="data!.capabilities.editor"
+        :pr-for="(branch) => prFor(repo, branch)"
+        @terminal="(p) => act('terminal', { path: p })"
+        @editor="(p) => act('editor', { path: p })"
+        @resume="(id) => resumeSession(id)"
+        @plan="(id, title) => (planFor = { id, title })"
+        @sessions="(p) => openSessions(repo, p)"
+      />
 
       <div v-else-if="tabOf(repo) === 'tickets'" class="tickets-tab">
         <p v-if="branchState[repo.path]?.prsLoading" class="muted loading-line"><i class="spinner" /> Loading pull requests…</p>
