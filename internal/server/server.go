@@ -329,6 +329,7 @@ func writeJSON(w http.ResponseWriter, v any) {
 type actionRequest struct {
 	Path      string `json:"path"`
 	SessionID string `json:"sessionId"`
+	Mode      string `json:"mode"` // resume only: "cli" (default) or "desktop"
 }
 
 func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
@@ -372,14 +373,7 @@ func (b badRequest) Error() string { return string(b) }
 // computed workspace, never against arbitrary client-supplied values.
 func (s *Server) run(action string, req actionRequest, ws workspace.Workspace) error {
 	if action == "resume" {
-		sess, ok := findSession(ws, req.SessionID)
-		if !ok || !sess.Resumable {
-			return badRequest("unknown or non-resumable session")
-		}
-		if _, err := os.Stat(sess.Cwd); err != nil {
-			return badRequest("session directory no longer exists")
-		}
-		return s.launcher.Resume(sess.Cwd, sess.ResumeID())
+		return s.resume(req, ws)
 	}
 
 	if !knownWorktree(ws, req.Path) {
@@ -389,6 +383,30 @@ func (s *Server) run(action string, req actionRequest, ws workspace.Workspace) e
 		return s.launcher.Editor(req.Path)
 	}
 	return s.launcher.Terminal(req.Path)
+}
+
+// resume continues a known session in a terminal (the default, "cli") or opens
+// Claude Desktop ("desktop"). Desktop mode only applies to sessions that exist in
+// Desktop, and it can only bring the app up: no link to one session is known.
+func (s *Server) resume(req actionRequest, ws workspace.Workspace) error {
+	sess, ok := findSession(ws, req.SessionID)
+	if !ok || !sess.Resumable {
+		return badRequest("unknown or non-resumable session")
+	}
+
+	switch req.Mode {
+	case "", "cli":
+		if _, err := os.Stat(sess.Cwd); err != nil {
+			return badRequest("session directory no longer exists")
+		}
+		return s.launcher.Resume(sess.Cwd, sess.ResumeID())
+	case "desktop":
+		if sess.DesktopID == "" {
+			return badRequest("this session was not started in Claude Desktop")
+		}
+		return s.launcher.Desktop()
+	}
+	return badRequest("unknown resume mode")
 }
 
 func knownWorktree(ws workspace.Workspace, path string) bool {

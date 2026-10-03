@@ -13,6 +13,7 @@ import (
 // Launcher opens things on the user's machine. Only the OS-backed
 // implementation touches processes; tests use a fake.
 type Launcher interface {
+	Desktop() error // open the Claude Desktop app
 	Terminal(dir string) error
 	Editor(dir string) error
 	Resume(dir, sessionID string) error
@@ -35,6 +36,29 @@ type spec struct {
 	Args       []string
 	Dir        string
 	NewConsole bool // Windows: give the process its own console window
+}
+
+// Desktop opens Claude Desktop through its claude:// protocol handler. No link
+// to a specific session is known, so it only brings the app up.
+func (OSLauncher) Desktop() error {
+	sp, err := desktopCommand(runtime.GOOS)
+	if err != nil {
+		return err
+	}
+	return start(sp)
+}
+
+// desktopCommand builds the process that opens the Claude Desktop app. Windows
+// goes through explorer.exe (it resolves the registered protocol handler)
+// instead of cmd.exe, so nothing is re-parsed by a shell.
+func desktopCommand(goos string) (spec, error) {
+	switch goos {
+	case "windows":
+		return spec{Name: "explorer.exe", Args: []string{"claude://"}}, nil
+	case "darwin":
+		return spec{Name: "open", Args: []string{"claude://"}}, nil
+	}
+	return spec{}, fmt.Errorf("opening Claude Desktop is not supported on %s", goos)
 }
 
 func (OSLauncher) Terminal(dir string) error { return launchTerminal(dir, "") }

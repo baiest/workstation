@@ -348,6 +348,12 @@ for the threat model and how to report a problem.
   (never through `cmd.exe`, which would re-parse `&`, `%`, `^` in a path); macOS `open -a Terminal` / `osascript` with
   the path quoted. Editor: `cursor`, else `code`, if on PATH (button hidden otherwise); a `.cmd` shim refuses paths
   containing `& | < > ^ % " !`. Resume: a terminal in the session's directory running `claude --resume <id>`.
+- **Resume: CLI / Desktop** (header button, remembered in the browser). *CLI* (default) opens that terminal. *Desktop*
+  opens the Claude Desktop app through its `claude://` protocol (`explorer.exe` on Windows, `open` on macOS) and tells you
+  which session to look for. **It cannot open that one session**: no deep link to a session is known (none appears in
+  Desktop's registry entry, config or logs), so it only brings the app up. It applies only to sessions that exist in
+  Desktop (those with a `local_*.json`); a session started in the CLI is always resumed in a terminal, whatever the
+  setting. The macOS side is unverified.
 - git runs with `core.fsmonitor`, hooks and the pager disabled (a repo's own config can name commands), a 30 s timeout
   that kills the whole process tree, and branch names always qualified as `refs/heads/...`. `gh` has a 25 s timeout.
 - The only destructive action is branch cleanup (see [Branch cleanup](#branch-cleanup)): local branches only,

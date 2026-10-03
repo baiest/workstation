@@ -9,6 +9,7 @@ import WorktreeCard from './components/WorktreeCard.vue'
 import WorktreeCleanupModal from './components/WorktreeCleanupModal.vue'
 import { loadBranchData, newBranchState, type BranchState } from './branchLoader'
 import { matchesFilter, relativeTime, statusLabel } from './format'
+import { resumeDecision, type ResumeWith } from './resume'
 import { buildTickets, matchTicket } from './tickets'
 import { mergedHint, sortWorktrees, summarizeSessions } from './worktrees'
 import { browserStorage, loadHidden, saveHidden, toggleHidden } from './hidden'
@@ -31,6 +32,45 @@ const cleanupFor = ref<Repo | null>(null)
 const wtCleanupFor = ref<Repo | null>(null)
 const tabs = reactive<Record<string, Tab>>(loadTabs())
 const branchState = reactive<Record<string, BranchState>>({})
+
+// "Resume Claude" in a terminal (CLI) or in the Claude Desktop app. Remembered per browser.
+const RESUME_KEY = 'workstation.resume-with'
+const resumeWith = ref<ResumeWith>(loadResumeWith())
+const notice = ref('')
+
+function loadResumeWith(): ResumeWith {
+  try {
+    return localStorage.getItem(RESUME_KEY) === 'desktop' ? 'desktop' : 'cli'
+  } catch {
+    return 'cli'
+  }
+}
+
+function toggleResumeWith() {
+  resumeWith.value = resumeWith.value === 'cli' ? 'desktop' : 'cli'
+  try {
+    localStorage.setItem(RESUME_KEY, resumeWith.value)
+  } catch {
+    // ignore: remembering the choice is a convenience
+  }
+}
+
+function findSession(id: string) {
+  for (const repo of data.value?.repos ?? []) {
+    for (const wt of repo.worktrees) {
+      const s = wt.sessions.find((x) => x.id === id)
+      if (s) return s
+    }
+  }
+  return data.value?.unlinked.find((u) => u.session.id === id)?.session
+}
+
+async function resumeSession(id: string) {
+  const decision = resumeDecision(findSession(id), resumeWith.value)
+  notice.value = ''
+  await act('resume', { sessionId: id, mode: decision.mode })
+  if (!toast.value && decision.note) notice.value = decision.note // only if it did not fail
+}
 
 // Order of the worktree cards: by what needs attention (default) or by name.
 type SortMode = 'activity' | 'name'
@@ -146,7 +186,7 @@ async function refresh() {
   }
 }
 
-async function act(action: Action, body: { path?: string; sessionId?: string }) {
+async function act(action: Action, body: { path?: string; sessionId?: string; mode?: ResumeWith }) {
   try {
     await runAction(action, body)
     toast.value = ''
@@ -221,6 +261,13 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
       <span v-if="sessionSummary.failed" class="chip danger" title="The last thing recorded was an API error">{{ sessionSummary.failed }} failed</span>
     </span>
     <span v-if="data" class="muted stamp">updated {{ relativeTime(data.generatedAt) }}</span>
+    <button
+      data-resume-with
+      :title="resumeWith === 'cli' ? 'Resume Claude opens a terminal running claude --resume. Click to use Claude Desktop' : 'Resume Claude opens the Claude Desktop app (sessions started in the CLI still use a terminal). Click to use the CLI'"
+      @click="toggleResumeWith"
+    >
+      Resume: {{ resumeWith === 'cli' ? 'CLI' : 'Desktop' }}
+    </button>
     <button :title="sortMode === 'activity' ? 'Sorted by what needs attention. Click to sort by name' : 'Sorted by name. Click to sort by activity'" @click="toggleSort">
       Sort: {{ sortMode }}
     </button>
@@ -235,6 +282,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
     <p v-if="error" class="banner err">Could not load workspace: {{ error }}</p>
     <p v-for="w in data?.warnings ?? []" :key="w" class="banner warn">{{ w }}</p>
     <p v-if="toast" class="banner err" @click="toast = ''">{{ toast }}</p>
+    <p v-if="notice" class="banner info" @click="notice = ''">{{ notice }}</p>
     <p v-if="!data && !error" class="muted">Loading…</p>
 
     <section v-for="repo in repos" :key="repo.path">
@@ -273,7 +321,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
           :pr="prFor(repo, wt.branch)"
           @terminal="(p) => act('terminal', { path: p })"
           @editor="(p) => act('editor', { path: p })"
-          @resume="(id) => act('resume', { sessionId: id })"
+          @resume="(id) => resumeSession(id)"
           @plan="(id) => (planFor = { id, title: wt.name })"
         />
       </div>
@@ -286,7 +334,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
           :editor="data!.capabilities.editor"
           @terminal="(p) => act('terminal', { path: p })"
           @editor="(p) => act('editor', { path: p })"
-          @resume="(id) => act('resume', { sessionId: id })"
+          @resume="(id) => resumeSession(id)"
           @plan="(id) => (planFor = { id, title: repo.name })"
         />
       </div>
@@ -321,7 +369,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
             :prs-loading="branchState[repo.path].prsLoading"
             @terminal="(p) => act('terminal', { path: p })"
             @editor="(p) => act('editor', { path: p })"
-            @resume="(id) => act('resume', { sessionId: id })"
+            @resume="(id) => resumeSession(id)"
             @plan="(id) => (planFor = { id, title: repo.name })"
           />
         </template>
@@ -360,7 +408,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
           <span class="muted">{{ u.reason }}</span>
           <span class="muted">{{ relativeTime(u.session.lastActivity) }}</span>
           <button v-if="u.session.hasPlan" class="link" @click="planFor = { id: u.session.id, title: u.session.title || u.session.id }">Plan</button>
-          <button v-if="u.session.resumable" class="link" @click="act('resume', { sessionId: u.session.id })">Resume</button>
+          <button v-if="u.session.resumable" class="link" @click="resumeSession(u.session.id)">Resume</button>
         </li>
       </ul>
       <p v-if="data.unlinked.length > UNLINKED_LIMIT" class="muted">

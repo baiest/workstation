@@ -34,6 +34,10 @@ func (f *fakeLauncher) Editor(dir string) error {
 	return f.err
 }
 func (f *fakeLauncher) EditorName() string { return f.editor }
+func (f *fakeLauncher) Desktop() error {
+	f.calls = append(f.calls, "desktop")
+	return f.err
+}
 func (f *fakeLauncher) Resume(dir, id string) error {
 	f.calls = append(f.calls, "resume:"+dir+"|"+id)
 	return f.err
@@ -369,6 +373,42 @@ func TestResumeAction(t *testing.T) {
 	want := "resume:" + dir + "|sess-1,resume:" + dir + "|orphan"
 	if strings.Join(l.calls, ",") != want {
 		t.Fatalf("calls = %v", l.calls)
+	}
+}
+
+func TestResumeInDesktop(t *testing.T) {
+	ws, dir := fixtureWorkspace(t)
+	// one session that also exists in Claude Desktop, one that only exists in the CLI
+	ws.Repos[0].Worktrees[0].Sessions[0].DesktopID = "local_abc"
+	l := &fakeLauncher{}
+	h := New(func() (workspace.Workspace, error) { return ws, nil }, l, fstest.MapFS{})
+
+	if rec := do(h, http.MethodPost, "/api/actions/resume", `{"sessionId":"sess-1","mode":"desktop"}`, nil); rec.Code != 204 {
+		t.Fatalf("a Desktop session must open in Desktop: %d %s", rec.Code, rec.Body)
+	}
+	if len(l.calls) != 1 || l.calls[0] != "desktop" {
+		t.Fatalf("Desktop mode opens the app, not a terminal: %v", l.calls)
+	}
+
+	if rec := do(h, http.MethodPost, "/api/actions/resume", `{"sessionId":"orphan","mode":"desktop"}`, nil); rec.Code != 400 {
+		t.Errorf("a CLI-only session cannot open in Desktop: %d", rec.Code)
+	}
+	if rec := do(h, http.MethodPost, "/api/actions/resume", `{"sessionId":"sess-1","mode":"bogus"}`, nil); rec.Code != 400 {
+		t.Errorf("an unknown mode must be 400, got %d", rec.Code)
+	}
+	if len(l.calls) != 1 {
+		t.Fatalf("refused requests must not launch anything: %v", l.calls)
+	}
+
+	// the default and the explicit CLI mode keep resuming in a terminal
+	for _, body := range []string{`{"sessionId":"sess-1"}`, `{"sessionId":"sess-1","mode":"cli"}`} {
+		l.calls = nil
+		if rec := do(h, http.MethodPost, "/api/actions/resume", body, nil); rec.Code != 204 {
+			t.Fatalf("%s: %d", body, rec.Code)
+		}
+		if len(l.calls) != 1 || l.calls[0] != "resume:"+dir+"|sess-1" {
+			t.Errorf("%s: %v", body, l.calls)
+		}
 	}
 }
 

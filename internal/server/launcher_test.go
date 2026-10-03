@@ -111,6 +111,22 @@ func TestStartInHostileDirectoryOnWindows(t *testing.T) {
 	t.Fatal("powershell did not report its working directory in time")
 }
 
+// Claude Desktop registers the claude:// protocol, which opens the app. There is
+// no known link to one particular session, so that is all this can do.
+func TestDesktopCommand(t *testing.T) {
+	got, err := desktopCommand("windows")
+	if err != nil || got.Name != "explorer.exe" || !reflect.DeepEqual(got.Args, []string{"claude://"}) || got.Dir != "" {
+		t.Errorf("windows: %+v %v", got, err)
+	}
+	got, err = desktopCommand("darwin")
+	if err != nil || got.Name != "open" || !reflect.DeepEqual(got.Args, []string{"claude://"}) {
+		t.Errorf("darwin: %+v %v", got, err)
+	}
+	if _, err := desktopCommand("plan9"); err == nil {
+		t.Error("an unsupported OS must error")
+	}
+}
+
 func TestTerminalCommandRejects(t *testing.T) {
 	for _, id := range []string{"a b", "a;rm -rf", "$(x)", "a&b", "`x`", "a\"b", "a\nb"} {
 		if _, err := terminalCommand("windows", `C:\r`, id); err == nil {

@@ -64,7 +64,7 @@ export async function runWorktreeCleanup(
 
 export type Action = 'terminal' | 'editor' | 'resume'
 
-export async function runAction(action: Action, body: { path?: string; sessionId?: string }): Promise<void> {
+export async function runAction(action: Action, body: { path?: string; sessionId?: string; mode?: 'cli' | 'desktop' }): Promise<void> {
   const res = await fetch(`/api/actions/${action}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

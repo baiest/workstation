@@ -276,3 +276,5 @@ button.danger:hover:not(:disabled) { background: var(--danger); border-color: va
 .chip.working { color: var(--working); border-color: var(--working); }
 .chip.danger { color: var(--danger); border-color: var(--danger); font-weight: 600; }
 @media (prefers-reduced-motion: reduce) { .card.tone-attention .dot { animation: none; } }
+
+.banner.info { border-color: var(--accent); color: var(--accent); }
