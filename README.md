@@ -139,6 +139,32 @@ Repositories are discovered automatically from the working directories of Claude
 repositories to show even if no Claude session ever ran in them. `forges` is only needed for Bitbucket (see
 [Pull requests](#pull-requests)); secrets are **never** stored in this file, only the names of environment variables.
 
+## Organizing your work
+
+The Worktrees tab is a board. Every stage is **derived** from data the tool already reads; you do not classify anything.
+
+| Lane | A worktree is here when... |
+|---|---|
+| **Needs you** | Claude waits for your reply or may need approval, an error happened in the last 24 h, the PR has requested changes or failing checks, or git has conflicts |
+| **In progress** | none of the others: Claude working, uncommitted changes, a draft PR, recent commits |
+| **In review** | its PR is open and not a draft |
+| **Done** | its PR was merged or closed: safe to clean up |
+| **Dormant** | no PR, nothing uncommitted, no live Claude and no activity for 14 days (collapsed by default; nothing is deleted) |
+
+- **Focus**: the star on a card moves it to a Focus strip above the lanes. A soft warning appears when more than 3
+  worktrees are in progress or need you. It never blocks anything.
+- **Where I left off**: one line per worktree (click the note, Enter saves, Esc cancels).
+- **Tidy up** bar: counts of merged worktrees, dormant ones and branches that can be deleted, linking to the existing
+  cleanup dialogs (nothing is removed without a preview).
+- **Active now**: live or recent sessions across all worktrees, most urgent first.
+- **Notify** (off by default): a browser notification when a session starts waiting for you, needs approval or fails
+  while the tab is in the background. The tab title shows `(2) workstation` with how many wait for you. The page
+  refreshes Claude states every 30 s.
+
+Stars and notes are the **only data workstation writes**: `<user config dir>/workstation/notes.json` (`-notes-file`
+to change, empty keeps them in memory), private to your user (0600), at most 500 entries of 200 characters, written
+atomically. A note is dropped when its worktree is removed from the dashboard.
+
 ## Where the data comes from
 
 ### Git (official CLI, no custom parsing of `.git`)

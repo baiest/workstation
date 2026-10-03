@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watchEffect } from 'vue'
 import { fetchBranches, fetchCleanup, fetchNotes, fetchWorkspace, runAction, saveNote, type Action } from './api'
 import BranchGraph from './components/BranchGraph.vue'
 import CleanupModal from './components/CleanupModal.vue'
@@ -16,6 +16,8 @@ import { matchesFilter, relativeTime, statusLabel } from './format'
 import { resumeDecision, type ResumeWith } from './resume'
 import { buildTickets, matchTicket } from './tickets'
 import type { Note } from './focus'
+import { deliver, tabTitle } from './notifier'
+import { needsYouCount, transitions } from './notify'
 import { branchTidy, tidyCounts, type BranchTidy } from './tidy'
 import { mergedHint, sortWorktrees, summarizeSessions } from './worktrees'
 import { browserStorage, loadHidden, saveHidden, toggleHidden } from './hidden'
@@ -54,6 +56,33 @@ function loadResumeWith(): ResumeWith {
     return localStorage.getItem(RESUME_KEY) === 'desktop' ? 'desktop' : 'cli'
   } catch {
     return 'cli'
+  }
+}
+
+// Browser notifications when a session starts waiting for you. Off until asked; remembered per browser.
+const NOTIFY_KEY = 'workstation.notify'
+const notifyOn = ref(false)
+try {
+  notifyOn.value = localStorage.getItem(NOTIFY_KEY) === '1' && typeof Notification !== 'undefined' && Notification.permission === 'granted'
+} catch {
+  // storage blocked: stays off
+}
+async function toggleNotify() {
+  if (typeof Notification === 'undefined') {
+    toast.value = 'this browser has no notifications'
+    return
+  }
+  if (!notifyOn.value && Notification.permission !== 'granted') {
+    if ((await Notification.requestPermission()) !== 'granted') {
+      toast.value = 'notifications are blocked: allow them for this site in the browser'
+      return
+    }
+  }
+  notifyOn.value = !notifyOn.value
+  try {
+    localStorage.setItem(NOTIFY_KEY, notifyOn.value ? '1' : '0')
+  } catch {
+    // ignore: a convenience
   }
 }
 
@@ -179,22 +208,45 @@ function toggleMerged(repo: Repo) {
   loadBranches(repo)
 }
 
-async function refresh() {
-  if (loading.value) return
-  loading.value = true
+function announce(prev: WorkspaceData | null, next: WorkspaceData) {
+  const events = transitions(prev?.repos, next.repos, next.unlinked, prev?.unlinked)
+  deliver(events, {
+    enabled: notifyOn.value,
+    permission: typeof Notification === 'undefined' ? 'denied' : Notification.permission,
+    hidden: document.hidden,
+    make: (title, options) => {
+      const n = new Notification(title, options)
+      n.onclick = () => {
+        window.focus()
+        n.close()
+      }
+    },
+  })
+}
+
+let busy = false
+async function refresh(quiet = false) {
+  if (busy) return
+  busy = true
+  loading.value = !quiet // the timer refreshes without flickering the button
   try {
-    data.value = await fetchWorkspace()
+    const prev = data.value
+    const next = await fetchWorkspace()
+    data.value = next
+    announce(prev, next)
     loadNotes()
     error.value = ''
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
     loading.value = false
+    busy = false
   }
   // PRs load in the background; the worktree view never waits for them. This does NOT force a
   // lookup: the server serves its cache (5 min, kept on disk) and refreshes old data by itself, so
   // pressing Refresh costs git, not API calls. "Refresh PRs" in the Branches tab forces one.
   // Hidden projects are skipped: no point spending API calls on what is not shown.
+  if (quiet) return // the timer only watches Claude: branches and PRs are not worth a git call every 30 s
   for (const repo of data.value?.repos ?? []) {
     if (!isHidden(repo)) loadBranches(repo, false)?.then(() => loadTidy(repo))
   }
@@ -285,12 +337,22 @@ function onKey(e: KeyboardEvent) {
   }
 }
 
+const POLL_MS = 30_000
+let timer: ReturnType<typeof setInterval> | undefined
+watchEffect(() => {
+  document.title = tabTitle(data.value ? needsYouCount(data.value.repos, data.value.unlinked) : 0)
+})
+
 onMounted(() => {
   applyUiPx()
   refresh()
+  timer = setInterval(() => refresh(true), POLL_MS)
   window.addEventListener('keydown', onKey)
 })
-onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKey)
+  clearInterval(timer)
+})
 </script>
 
 <template>
@@ -309,6 +371,14 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
     </span>
     <span v-if="data" class="muted stamp">updated {{ relativeTime(data.generatedAt) }}</span>
     <button
+      data-notify
+      :class="{ active: notifyOn }"
+      :title="notifyOn ? 'You get a notification when Claude waits for you while this tab is in the background. Click to turn off' : 'Get a notification when Claude waits for you while this tab is in the background'"
+      @click="toggleNotify"
+    >
+      Notify: {{ notifyOn ? 'on' : 'off' }}
+    </button>
+    <button
       data-resume-with
       :title="resumeWith === 'cli' ? 'Resume Claude opens a terminal running claude --resume. Click to use Claude Desktop' : 'Resume Claude opens the Claude Desktop app (sessions started in the CLI still use a terminal). Click to use the CLI'"
       @click="toggleResumeWith"
@@ -322,7 +392,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
       <button title="Smaller UI" @click="bumpUi(-1)">A−</button>
       <button title="Larger UI" @click="bumpUi(1)">A+</button>
     </span>
-    <button class="primary" :disabled="loading" @click="refresh">{{ loading ? 'Refreshing…' : 'Refresh' }}</button>
+    <button class="primary" :disabled="loading" @click="refresh()">{{ loading ? 'Refreshing…' : 'Refresh' }}</button>
   </header>
 
   <main>
