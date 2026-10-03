@@ -13,6 +13,7 @@ import (
 	"workstation/internal/claude"
 	"workstation/internal/config"
 	"workstation/internal/forge"
+	"workstation/internal/notes"
 	"workstation/internal/server"
 	"workstation/internal/workspace"
 	"workstation/internal/wtclean"
@@ -27,13 +28,14 @@ func main() {
 	addr := flag.String("addr", "127.0.0.1:7420", "listen address; must be a loopback address (the server has no authentication)")
 	cfgPath := flag.String("config", config.DefaultPath(), "optional config file")
 	cacheDir := flag.String("cache-dir", defaultCacheDir(), "where pull request data is kept between runs (private to you); empty disables")
+	statePath := flag.String("notes-file", defaultNotesFile(), "where stars and notes are kept (private to you); empty keeps them in memory only")
 	flag.Parse()
 
 	if *showVersion {
 		fmt.Println("workstation", version)
 		return
 	}
-	if err := run(*addr, *cfgPath, *cacheDir); err != nil {
+	if err := run(*addr, *cfgPath, *cacheDir, *statePath); err != nil {
 		fmt.Fprintln(os.Stderr, "workstation:", err)
 		os.Exit(1)
 	}
@@ -48,7 +50,16 @@ func defaultCacheDir() string {
 	return filepath.Join(dir, "workstation", "prs")
 }
 
-func run(addr, cfgPath, cacheDir string) error {
+// defaultNotesFile is <user config dir>/workstation/notes.json, or "" if the OS has none.
+func defaultNotesFile() string {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(dir, "workstation", "notes.json")
+}
+
+func run(addr, cfgPath, cacheDir, notesFile string) error {
 	if err := server.RequireLoopback(addr); err != nil {
 		return err
 	}
@@ -69,6 +80,7 @@ func run(addr, cfgPath, cacheDir string) error {
 		server.WithPlans(cli),
 		server.WithBranches(branchSvc),
 		server.WithCleanup(branchSvc),
+		server.WithNotes(notes.New(notesFile)),
 		server.WithWorktreeCleanup(&wtclean.Service{PRs: branchSvc.PullRequests}),
 	)
 	log.Printf("workstation listening on http://%s", addr)

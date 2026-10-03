@@ -103,7 +103,20 @@ func (s *Server) handleWorktreeCleanupRemove(w http.ResponseWriter, r *http.Requ
 	if s.cleanupFailed(w, err) {
 		return
 	}
+	s.forgetNotes(results)
 	writeJSON(w, map[string]any{"results": results})
+}
+
+// forgetNotes drops the note and star of every worktree that was removed.
+func (s *Server) forgetNotes(results []wtclean.RemoveResult) {
+	if s.notes == nil {
+		return
+	}
+	for _, r := range results {
+		if r.Removed {
+			_ = s.notes.Delete(r.Path) // a leftover note is harmless: it is only ever shown for existing worktrees
+		}
+	}
 }
 
 // cleanupFailed writes the response for err and reports whether there was one.
