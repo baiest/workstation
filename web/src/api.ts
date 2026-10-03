@@ -25,7 +25,7 @@ export const fetchBranches = (repo: string, opts: { merged?: boolean; refresh?: 
 
 /** Branches that could be deleted (merged PR, old enough). Changes nothing. */
 export const fetchCleanup = (repo: string, days: number) =>
-  getJSON<CleanupPreview>(`/api/cleanup?repo=${encodeURIComponent(repo)}&days=${days}&refresh=1`)
+  getJSON<CleanupPreview>(`/api/cleanup?repo=${encodeURIComponent(repo)}&days=${days}`) // from the cache: deleting re-reads the PRs anyway
 
 /** Deletes the chosen local branches; the server re-checks each one before touching it. */
 export async function runCleanup(

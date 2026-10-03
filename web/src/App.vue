@@ -170,7 +170,6 @@ function toggleMerged(repo: Repo) {
 async function refresh() {
   if (loading.value) return
   loading.value = true
-  const hadBranches = Object.keys(branchState)
   try {
     data.value = await fetchWorkspace()
     error.value = ''
@@ -179,10 +178,12 @@ async function refresh() {
   } finally {
     loading.value = false
   }
-  // PRs load in the background (network); the worktree view never waits for them.
+  // PRs load in the background; the worktree view never waits for them. This does NOT force a
+  // lookup: the server serves its cache (5 min, kept on disk) and refreshes old data by itself, so
+  // pressing Refresh costs git, not API calls. "Refresh PRs" in the Branches tab forces one.
   // Hidden projects are skipped: no point spending API calls on what is not shown.
   for (const repo of data.value?.repos ?? []) {
-    if (!isHidden(repo)) loadBranches(repo, hadBranches.includes(repo.path))
+    if (!isHidden(repo)) loadBranches(repo, false)
   }
 }
 
@@ -355,8 +356,24 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
               Show recently merged (30 days)
             </label>
             <span v-if="branchState[repo.path].prsLoading" class="muted loading-line" data-prs-loading>
-              <i class="spinner" /> Loading pull requests…
+              <i class="spinner" />
+              {{
+                branchState[repo.path].data?.prsFetchedAt
+                  ? `Refreshing pull requests (showing data from ${relativeTime(branchState[repo.path].data!.prsFetchedAt!)})…`
+                  : 'Loading pull requests…'
+              }}
             </span>
+            <span v-else-if="branchState[repo.path].data?.prsFetchedAt" class="muted small-note" data-prs-age>
+              Pull requests from {{ relativeTime(branchState[repo.path].data!.prsFetchedAt!) }}
+            </span>
+            <button
+              data-refresh-prs
+              :disabled="branchState[repo.path].loading"
+              title="Read the pull requests from GitHub / Bitbucket again now (they are cached for 5 minutes)"
+              @click="loadBranches(repo, true)"
+            >
+              ↻ PRs
+            </button>
             <button data-cleanup title="Delete local branches whose PR was merged long ago (you review the list first)" @click="cleanupFor = repo">
               Clean up branches…
             </button>

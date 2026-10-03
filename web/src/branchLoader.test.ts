@@ -98,6 +98,74 @@ describe('loadBranchData', () => {
     await a
   })
 
+  describe('old cached pull requests', () => {
+    const stale = (nodes: string[]): BranchesResponse => ({ ...resp(nodes), prsStale: true, prsFetchedAt: '2026-10-02T10:00:00Z' })
+    const noWait = () => Promise.resolve()
+
+    it('shows the cached data at once and asks again a moment later for the refreshed one', async () => {
+      const sleeps: number[] = []
+      const fetcher: BranchFetcher = vi
+        .fn()
+        .mockResolvedValueOnce(resp(['main', 'a'], true)) // git only
+        .mockResolvedValueOnce(stale(['main', 'a'])) // the server answered from cache, refreshing behind
+        .mockResolvedValueOnce(resp(['main', 'a', 'b'])) // the refreshed data
+      const st = newBranchState()
+
+      await loadBranchData(st, '/r', false, fetcher, (ms) => (sleeps.push(ms), Promise.resolve()))
+
+      expect(fetcher).toHaveBeenCalledTimes(3)
+      expect(fetcher).toHaveBeenNthCalledWith(3, '/r', { merged: false, refresh: false }) // a poll never forces a fetch
+      expect(sleeps).toHaveLength(1)
+      expect(sleeps[0]).toBeGreaterThanOrEqual(1000)
+      expect(st.data!.graph.nodes).toHaveLength(3)
+      expect(st.data!.prsStale).toBeFalsy()
+      expect(st.prsLoading).toBe(false)
+      expect(st.loading).toBe(false)
+    })
+
+    it('keeps showing the loading state while it waits for the refresh', async () => {
+      const seen: boolean[] = []
+      const st = newBranchState()
+      const fetcher: BranchFetcher = vi
+        .fn()
+        .mockResolvedValueOnce(resp(['main'], true))
+        .mockResolvedValueOnce(stale(['main']))
+        .mockResolvedValueOnce(resp(['main']))
+      await loadBranchData(st, '/r', false, fetcher, () => (seen.push(st.prsLoading), Promise.resolve()))
+      expect(seen).toEqual([true])
+    })
+
+    it('gives up after a few polls instead of waiting forever', async () => {
+      const fetcher: BranchFetcher = vi.fn().mockResolvedValue(stale(['main']))
+      const st = newBranchState()
+      st.data = stale(['main']) // skip the git-only step
+      await loadBranchData(st, '/r', false, fetcher, noWait)
+      expect(vi.mocked(fetcher).mock.calls.length).toBeLessThanOrEqual(5)
+      expect(st.loading).toBe(false)
+      expect(st.prsLoading).toBe(false)
+    })
+
+    it('does not poll when the data is fresh', async () => {
+      const sleeps = vi.fn().mockResolvedValue(undefined)
+      const fetcher: BranchFetcher = vi.fn().mockResolvedValue(resp(['main']))
+      await loadBranchData(newBranchState(), '/r', false, fetcher, sleeps)
+      expect(sleeps).not.toHaveBeenCalled()
+    })
+
+    it('ignores a failing poll and keeps what it has', async () => {
+      const fetcher: BranchFetcher = vi
+        .fn()
+        .mockResolvedValueOnce(resp(['main'], true))
+        .mockResolvedValueOnce(stale(['main', 'a']))
+        .mockRejectedValueOnce(new Error('network down'))
+      const st = newBranchState()
+      await loadBranchData(st, '/r', false, fetcher, noWait)
+      expect(st.data!.graph.nodes).toHaveLength(2)
+      expect(st.prsError).toBe('')
+      expect(st.prsLoading).toBe(false)
+    })
+  })
+
   it('passes the "recently merged" choice to both steps', async () => {
     const fetcher: BranchFetcher = vi.fn().mockResolvedValue(resp(['main']))
     const st = newBranchState()

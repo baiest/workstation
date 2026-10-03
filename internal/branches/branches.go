@@ -185,8 +185,12 @@ func applyCap(cands []candidate, limit int) (kept []candidate, hidden int) {
 // resolveParents sets Parent/Via on every non-default node.
 func resolveParents(dir, def string, nodes []Node) {
 	inGraph := map[string]bool{}
-	for _, n := range nodes {
+	// ref is the immutable part of a node. The goroutines below write Parent/Via
+	// of their own node, so they must only ever read these copies of the others.
+	refs := make([]ref, len(nodes))
+	for i, n := range nodes {
 		inGraph[n.Branch] = true
+		refs[i] = ref{Branch: n.Branch, Tip: n.Tip}
 	}
 
 	parallel(len(nodes), func(i int) {
@@ -198,14 +202,16 @@ func resolveParents(dir, def string, nodes []Node) {
 			n.Parent, n.Via = n.PR.Dest, ViaPR
 			return
 		}
-		n.Parent, n.Via = ancestryParent(dir, def, *n, nodes), ViaGit
+		n.Parent, n.Via = ancestryParent(dir, def, refs[i], refs), ViaGit
 	})
 	breakCycles(def, nodes)
 }
 
+type ref struct{ Branch, Tip string }
+
 // ancestryParent picks the closest other node whose tip is an ancestor of n.
 // Falls back to the default branch (e.g. when it has moved on since n was cut).
-func ancestryParent(dir, def string, n Node, nodes []Node) string {
+func ancestryParent(dir, def string, n ref, nodes []ref) string {
 	best, bestN := def, -1
 	for _, c := range nodes {
 		if c.Branch == n.Branch {

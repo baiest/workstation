@@ -67,6 +67,10 @@ export interface BranchesResponse {
   warnings: string[]
   /** true when the graph came from git alone because no PR data was cached yet */
   prsPending?: boolean
+  /** when the pull requests shown were read from the forge */
+  prsFetchedAt?: string
+  /** older than the cache lifetime: shown at once while the server refreshes them */
+  prsStale?: boolean
 }
 
 /** From safest to riskiest. A missing kind means a branch whose PR was merged. */

@@ -4,21 +4,51 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"workstation/internal/forge"
 )
 
+// fakeProvider is safe to call from background refreshes. If gate is set, each
+// call blocks until it is closed, which lets a test hold a fetch "in flight".
 type fakeProvider struct {
-	calls int
-	prs   []forge.PR
-	err   error
+	mu      sync.Mutex
+	calls   int
+	prs     []forge.PR
+	err     error
+	gate    chan struct{}
+	started chan struct{} // receives one value per call that reached the provider
 }
 
 func (f *fakeProvider) PullRequests(context.Context) ([]forge.PR, error) {
+	f.mu.Lock()
 	f.calls++
-	return f.prs, f.err
+	gate, started, prs, err := f.gate, f.started, f.prs, f.err
+	f.mu.Unlock()
+	if started != nil {
+		select {
+		case started <- struct{}{}:
+		default:
+		}
+	}
+	if gate != nil {
+		<-gate
+	}
+	return prs, err
+}
+
+func (f *fakeProvider) set(prs []forge.PR, gate chan struct{}) {
+	f.mu.Lock()
+	f.prs, f.gate = prs, gate
+	f.mu.Unlock()
+}
+
+func (f *fakeProvider) n() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls
 }
 
 func newService(p forge.Provider, detectErr error, now *time.Time) *Service {
@@ -58,8 +88,12 @@ func TestServiceAttachesPRsAndCaches(t *testing.T) {
 		t.Fatalf("refresh must bypass cache, calls=%d err=%v", fp.calls, err)
 	}
 	now = now.Add(2 * time.Minute)
-	if _, err := s.Graph(repo, nil, false, false); err != nil || fp.calls != 3 {
-		t.Fatalf("expired cache must refetch, calls=%d err=%v", fp.calls, err)
+	if _, err := s.Graph(repo, nil, false, false); err != nil {
+		t.Fatal(err)
+	}
+	s.Wait() // an expired cache is refreshed in the background (see cache_test.go)
+	if fp.n() != 3 {
+		t.Fatalf("expired cache must refetch, calls=%d", fp.n())
 	}
 }
 

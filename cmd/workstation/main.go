@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 
 	"workstation/internal/branches"
 	"workstation/internal/claude"
@@ -25,19 +26,29 @@ func main() {
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	addr := flag.String("addr", "127.0.0.1:7420", "listen address; must be a loopback address (the server has no authentication)")
 	cfgPath := flag.String("config", config.DefaultPath(), "optional config file")
+	cacheDir := flag.String("cache-dir", defaultCacheDir(), "where pull request data is kept between runs (private to you); empty disables")
 	flag.Parse()
 
 	if *showVersion {
 		fmt.Println("workstation", version)
 		return
 	}
-	if err := run(*addr, *cfgPath); err != nil {
+	if err := run(*addr, *cfgPath, *cacheDir); err != nil {
 		fmt.Fprintln(os.Stderr, "workstation:", err)
 		os.Exit(1)
 	}
 }
 
-func run(addr, cfgPath string) error {
+// defaultCacheDir is <user cache dir>/workstation/prs, or "" if the OS has none.
+func defaultCacheDir() string {
+	dir, err := os.UserCacheDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(dir, "workstation", "prs")
+}
+
+func run(addr, cfgPath, cacheDir string) error {
 	if err := server.RequireLoopback(addr); err != nil {
 		return err
 	}
@@ -51,6 +62,9 @@ func run(addr, cfgPath string) error {
 	builder := workspace.Builder{Provider: provider, ExtraRepos: cfg.Repos}
 
 	branchSvc := branches.NewService(forge.DefaultDeps(cfg.Forges))
+	if cacheDir != "" {
+		branchSvc.Store = branches.NewDiskStore(cacheDir)
+	}
 	handler := server.New(builder.Build, server.OSLauncher{}, web.Dist(),
 		server.WithPlans(cli),
 		server.WithBranches(branchSvc),

@@ -78,6 +78,7 @@ Without `make` (Windows), run the commands from the [Makefile](Makefile): `pnpm 
 workstation                                   # http://127.0.0.1:7420
 workstation -addr 127.0.0.1:8000              # another port (loopback addresses only)
 workstation -config ~/.workstation.json       # config file (optional)
+workstation -cache-dir ""                     # do not keep pull request data on disk (default: user cache dir)
 workstation -version
 ```
 
@@ -257,9 +258,22 @@ server, using a freshly built workspace and fresh PR data at the moment of remov
 The Branches tab loads in **two steps** so it never waits for the network: first the graph from Git alone
 (`GET /api/branches?prs=0`, no forge call), then the full graph with pull requests, which replaces it while the page
 shows "Loading pull requests…" (nodes without a known PR show `PR…` instead of "no PR"). Branches whose PR already
-merged (squash merges) only disappear from the graph once the second step arrives. PRs are cached for 60 s per repo;
-Refresh bypasses the cache. If the lookup fails, the graph stays as drawn from Git and a warning says why. The forge
-is chosen from the `origin` remote URL:
+merged (squash merges) only disappear from the graph once the second step arrives. If the lookup fails, the graph stays
+as drawn from Git and a warning says why. The forge is chosen from the `origin` remote URL.
+
+**Caching, so the forge is not asked over and over.** Pull requests are cached per repo:
+
+- **5 minutes** counts as fresh: no forge call at all, however many times you reload or press **Refresh**.
+- **Older data is shown at once** and refreshed in the background (stale-while-revalidate); the page shows "Refreshing
+  pull requests (showing data from 12 min ago)…" and picks up the new data a few seconds later.
+- Concurrent lookups of one repo **share a single fetch**; a failed lookup is remembered for 30 s and a failed refresh
+  never blanks the PRs already known.
+- The cache is **kept on disk** (`<user cache dir>/workstation/prs`, e.g. `%LOCALAPPDATA%\workstation\prs` or
+  `~/Library/Caches/workstation/prs`), so after a restart the very first paint already has the pull requests. The files
+  hold PR titles and branch names, so the directory is private to you (0700, files 0600). Delete it to clear the cache;
+  `-cache-dir ""` turns the disk cache off, `-cache-dir <dir>` moves it.
+- **Refresh** (or `r`) therefore costs git, not API calls. **↻ PRs** in the Branches tab forces a fresh read. Deleting
+  branches or worktrees always re-reads the PRs first and never trusts the cache.
 
 | Host | How | Needs |
 |---|---|---|
@@ -330,7 +344,7 @@ slow tool". It is labelled with a question mark and a tooltip, and uses a 30 s t
 - Sessions of deleted worktrees cannot be resumed (`claude --resume` must run in the original directory).
 - Only the last 100 GitHub PRs are looked at: a PR older than that shows as "no PR".
 - On a big repo the graph from Git appears in about a second and the pull requests a second or two later (the two
-  `gh` calls run in parallel); later loads within a minute are served from the cache.
+  `gh` calls run in parallel); later loads, even after a restart, are served from the cache (see "Caching" above).
 
 ## Actions and security
 
