@@ -202,3 +202,28 @@ button.danger:hover:not(:disabled) { background: var(--danger); border-color: va
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes pulse-soft { 50% { opacity: 0.7; } }
 @media (prefers-reduced-motion: reduce) { .spinner, .gnode.pr-loading { animation: none; } }
+
+/* worktree cards: title is the PR / branch, ticket badge, merged hint, fresh */
+.card h3 { font: 600 1.05rem system-ui, -apple-system, 'Segoe UI', sans-serif; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.card .branch { color: var(--accent); font-size: 0.85rem; }
+.card .folder { color: var(--muted); }
+.badge.ticket { flex: none; color: var(--accent); border-color: var(--accent); font-family: var(--mono); font-size: 0.74rem; }
+.badge.merged-hint { flex: none; color: #a371f7; border-color: #a371f7; }
+.card.fresh { box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent), 0 0 12px color-mix(in srgb, var(--accent) 22%, transparent); }
+
+/* branch graph: PR nodes vs branches without a PR, and recent activity */
+.gnode { --tone: var(--border); }
+.gnode.pr-open { --tone: var(--working); }
+.gnode.pr-draft { --tone: var(--muted); }
+.gnode.pr-merged { --tone: #a371f7; }
+.gnode.pr-declined { --tone: var(--stopped); }
+.gnode.has-pr { background: color-mix(in srgb, var(--tone) 8%, var(--bg)); border-color: color-mix(in srgb, var(--tone) 55%, var(--border)); }
+.gnode.no-pr { border-style: dashed; background: transparent; }
+.gnode .title { font-size: 0.98rem; }
+.gnode .title.mono { font-size: 0.9rem; }
+.gnode .branch-name { color: var(--accent); font-size: 0.8rem; }
+.new-badge { flex: none; font-size: 0.68rem; line-height: 1.25rem; padding: 0 0.4rem; border-radius: 0.7rem; background: var(--accent); color: #fff; text-transform: uppercase; letter-spacing: 0.05em; }
+.gnode.fresh { opacity: 1; box-shadow: 0 0 0 2px var(--accent), 0 0 14px color-mix(in srgb, var(--accent) 40%, transparent); }
+.gnode.fresh.match { box-shadow: 0 0 0 3px var(--accent), 0 0 16px color-mix(in srgb, var(--accent) 55%, transparent); }
+.swatch.box { width: 1.1rem; height: 0.8rem; border: 2px solid var(--muted); border-radius: 0.2rem; vertical-align: middle; }
+.swatch.dashed-box { border-style: dashed; }

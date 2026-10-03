@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { gitSummary, relativeTime, statusLabel } from '../format'
 import type { Pr, Worktree } from '../types'
+import { isFresh, mergedHint, ticketKey } from '../worktrees'
 import PrChip from './PrChip.vue'
 
 const props = withDefaults(defineProps<{ worktree: Worktree; editor: string; now?: Date; pr?: Pr }>(), {
@@ -25,31 +26,49 @@ const planned = computed(() => props.worktree.sessions.find((s) => s.hasPlan))
 const branchText = computed(() =>
   props.worktree.detached ? `detached @ ${props.worktree.head.slice(0, 7)}` : props.worktree.branch,
 )
+// The title says what the work IS (the PR title, else the branch), not the folder it happens to live in.
+const ticket = computed(() => (props.worktree.isMain ? undefined : ticketKey(props.worktree.branch)))
+const title = computed(() => {
+  const w = props.worktree
+  if (w.isMain) return w.name
+  return props.pr?.title ?? w.branch ?? `detached @ ${w.head.slice(0, 7)}`
+})
+const showBranchLine = computed(() => props.worktree.isMain || !!props.pr) // otherwise the branch is already the title
+const fresh = computed(() => !props.worktree.isMain && isFresh(props.worktree.git.lastCommit?.date, props.now))
+const removable = computed(() => mergedHint(props.worktree, props.pr))
 const ahead = computed(() => props.worktree.git.ahead)
 const behind = computed(() => props.worktree.git.behind)
 const ago = (iso: string) => relativeTime(iso, props.now)
 </script>
 
 <template>
-  <article class="card" :class="[`status-${state}`, { dirty: worktree.git.dirty }]">
+  <article class="card" :class="[`status-${state}`, { dirty: worktree.git.dirty, fresh }]">
     <header>
       <span class="dot" />
-      <h3>{{ worktree.name }}</h3>
+      <span v-if="ticket" class="badge ticket">{{ ticket }}</span>
+      <h3 :title="title">{{ title }}</h3>
       <span v-if="worktree.isMain" class="badge">main</span>
+      <span v-if="removable" class="badge merged-hint" title="Its PR is merged and nothing is pending here: this worktree can be removed">
+        merged · removable
+      </span>
       <span class="state">{{ latest ? statusLabel(latest.status) : '' }}</span>
     </header>
 
-    <div class="branch mono">
-      {{ branchText }}
-      <span v-if="ahead" class="sync">↑{{ ahead }}</span>
-      <span v-if="behind" class="sync">↓{{ behind }}</span>
+    <div v-if="showBranchLine" class="branch mono clip">{{ branchText }}</div>
+    <div class="row">
+      <span class="k">Folder</span>
+      <span class="folder mono clip" :title="worktree.path">{{ worktree.name }}</span>
     </div>
     <div class="path mono" :title="worktree.path"><bdi>{{ worktree.path }}</bdi></div>
 
     <div class="row">
       <span class="k">Git</span>
       <span v-if="worktree.gitError" class="err" :title="worktree.gitError">{{ worktree.gitError }}</span>
-      <span v-else :class="{ changed: worktree.git.dirty }">{{ gitSummary(worktree.git) }}</span>
+      <span v-else>
+        <span :class="{ changed: worktree.git.dirty }">{{ gitSummary(worktree.git) }}</span>
+        <span v-if="ahead" class="sync">↑{{ ahead }}</span>
+        <span v-if="behind" class="sync">↓{{ behind }}</span>
+      </span>
     </div>
     <div v-if="pr" class="row">
       <span class="k">PR</span>

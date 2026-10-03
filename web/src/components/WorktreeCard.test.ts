@@ -102,6 +102,63 @@ describe('WorktreeCard', () => {
     expect(w.get('a[href="https://x/pull/120"]').attributes('target')).toBe('_blank')
   })
 
+  describe('title: ticket + PR title', () => {
+    const prFor = (over: object = {}) => ({
+      number: 48080, title: 'Update: use the ACE field in the builder', url: 'https://x/48080', source: 'REG-5393-ace-sync-customer-rules',
+      dest: 'main', state: 'open' as const, draft: false, approvals: 0, changesRequested: 0, updatedAt: '2026-10-01T00:00:00Z', ...over,
+    })
+    const card = (wt: Worktree, pr?: ReturnType<typeof prFor>) =>
+      mount(WorktreeCard, { props: { worktree: wt, editor: 'cursor', now, pr } })
+    const REG = worktree({ name: 'REG-5393-ace-sync-worker', branch: 'REG-5393-ace-sync-customer-rules' })
+
+    it('uses the PR title as the title, the branch under it, and the ticket as a badge', () => {
+      const w = card(REG, prFor())
+      expect(w.get('h3').text()).toBe('Update: use the ACE field in the builder')
+      expect(w.get('.branch').text()).toContain('REG-5393-ace-sync-customer-rules')
+      expect(w.get('.ticket').text()).toBe('REG-5393')
+    })
+
+    it('shows the folder separately, since it often differs from the branch', () => {
+      const w = card(REG, prFor())
+      expect(w.get('.folder').text()).toBe('REG-5393-ace-sync-worker')
+    })
+
+    it('without a PR the branch is the title and is not repeated underneath', () => {
+      const w = card(REG)
+      expect(w.get('h3').text()).toBe('REG-5393-ace-sync-customer-rules')
+      expect(w.find('.branch').exists()).toBe(false)
+      expect(w.get('.ticket').text()).toBe('REG-5393')
+    })
+
+    it('has no ticket badge for a branch without a key', () => {
+      expect(card(worktree({ branch: 'feat/max-bid-increment' })).find('.ticket').exists()).toBe(false)
+    })
+
+    it('keeps the repository name as the title of the main worktree', () => {
+      const w = card(worktree({ name: 'scrap-services', branch: 'main', isMain: true }), prFor({ source: 'main' }))
+      expect(w.get('h3').text()).toBe('scrap-services')
+      expect(w.get('.branch').text()).toContain('main')
+    })
+  })
+
+  it('says when the PR is merged and nothing is pending, and not otherwise', () => {
+    const merged = {
+      number: 1, title: 't', url: 'https://x/1', source: 'a', dest: 'main', state: 'merged' as const,
+      draft: false, approvals: 0, changesRequested: 0, updatedAt: '2026-10-01T00:00:00Z',
+    }
+    const clean = worktree({ git: { ...worktree().git, dirty: false, modified: 0, untracked: 0 }, sessions: [] })
+    expect(mount(WorktreeCard, { props: { worktree: clean, editor: '', now, pr: merged } }).find('.merged-hint').exists()).toBe(true)
+    expect(mount(WorktreeCard, { props: { worktree: worktree(), editor: '', now, pr: merged } }).find('.merged-hint').exists()).toBe(false) // dirty
+    expect(mount(WorktreeCard, { props: { worktree: clean, editor: '', now } }).find('.merged-hint').exists()).toBe(false) // no PR
+  })
+
+  it('marks worktrees with a recent commit, not old ones', () => {
+    const recent = render(worktree({ git: { ...worktree().git, lastCommit: { hash: 'h', subject: 's', date: '2026-10-01T12:00:00Z' } } }))
+    expect(recent.classes()).toContain('fresh')
+    const old = render(worktree({ git: { ...worktree().git, lastCommit: { hash: 'h', subject: 's', date: '2026-08-01T12:00:00Z' } } }))
+    expect(old.classes()).not.toContain('fresh')
+  })
+
   it('does not make a link out of a hostile PR url', () => {
     const pr = {
       number: 9, title: 't', url: 'javascript:alert(1)', source: 'a', dest: 'main', state: 'open' as const,

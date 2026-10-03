@@ -7,6 +7,7 @@ import PlanModal from './components/PlanModal.vue'
 import WorktreeCard from './components/WorktreeCard.vue'
 import { loadBranchData, newBranchState, type BranchState } from './branchLoader'
 import { matchesFilter, relativeTime, statusLabel } from './format'
+import { sortWorktrees } from './worktrees'
 import { browserStorage, loadHidden, saveHidden, toggleHidden } from './hidden'
 import type { Pr, Repo, WorkspaceData } from './types'
 import { FONT_DEFAULT, clampFontSize, nextFontSize } from './zoom'
@@ -26,6 +27,28 @@ const planFor = ref<{ id: string; title: string } | null>(null)
 const cleanupFor = ref<Repo | null>(null)
 const tabs = reactive<Record<string, Tab>>(loadTabs())
 const branchState = reactive<Record<string, BranchState>>({})
+
+// Order of the worktree cards: by what needs attention (default) or by name.
+type SortMode = 'activity' | 'name'
+const SORT_KEY = 'workstation.sort'
+const sortMode = ref<SortMode>(loadSort())
+
+function loadSort(): SortMode {
+  try {
+    return localStorage.getItem(SORT_KEY) === 'name' ? 'name' : 'activity'
+  } catch {
+    return 'activity'
+  }
+}
+
+function toggleSort() {
+  sortMode.value = sortMode.value === 'activity' ? 'name' : 'activity'
+  try {
+    localStorage.setItem(SORT_KEY, sortMode.value)
+  } catch {
+    // ignore: remembering the order is a convenience
+  }
+}
 
 // Projects the user hid, remembered per browser.
 const store = browserStorage()
@@ -132,7 +155,15 @@ const prFor = (repo: Repo, branch?: string): Pr | undefined =>
 const repos = computed(() =>
   (data.value?.repos ?? [])
     .filter((r) => !isHidden(r))
-    .map((r) => ({ ...r, all: r.worktrees, worktrees: r.worktrees.filter((w) => matchesFilter(w, r.name, query.value)) }))
+    .map((r) => ({
+      ...r,
+      all: r.worktrees,
+      worktrees: sortWorktrees(
+        r.worktrees.filter((w) => matchesFilter(w, r.name, query.value)),
+        (branch) => prFor(r, branch),
+        sortMode.value,
+      ),
+    }))
     .filter((r) => r.worktrees.length > 0 || tabOf(r) === 'branches'),
 )
 
@@ -163,6 +194,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
     <h1>workstation</h1>
     <input ref="filterEl" v-model="query" class="filter" placeholder="Filter worktrees   ( / )" spellcheck="false" />
     <span v-if="data" class="muted stamp">updated {{ relativeTime(data.generatedAt) }}</span>
+    <button :title="sortMode === 'activity' ? 'Sorted by what needs attention. Click to sort by name' : 'Sorted by name. Click to sort by activity'" @click="toggleSort">
+      Sort: {{ sortMode }}
+    </button>
     <span class="size-controls" role="group" aria-label="UI size">
       <button title="Smaller UI" @click="bumpUi(-1)">A−</button>
       <button title="Larger UI" @click="bumpUi(1)">A+</button>

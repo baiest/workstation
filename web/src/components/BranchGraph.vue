@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { edgePath, layoutTree } from '../layout'
-import { isStale, matchNode, relativeTime, statusLabel } from '../format'
+import { isStale, matchNode, prTone, relativeTime, statusLabel } from '../format'
+import { isFresh } from '../worktrees'
 import { ZOOM_STEP, clampZoom, fitZoom } from '../zoom'
 import type { BranchNode, Worktree } from '../types'
 import PrChip from './PrChip.vue'
@@ -92,6 +93,7 @@ function worktreeOf(n: BranchNode): Worktree | undefined {
 }
 const stateOf = (n: BranchNode) => worktreeOf(n)?.sessions[0]?.status ?? 'none'
 const stale = (n: BranchNode) => !n.isDefault && !n.worktree && !n.pr && isStale(n.date, props.now)
+const fresh = (n: BranchNode) => !n.isDefault && isFresh(n.date, props.now) // a commit in the last 3 days
 const pos = (branch: string) => layout.value.positions.get(branch)!
 const ago = (iso: string) => relativeTime(iso, props.now)
 
@@ -150,6 +152,9 @@ function toggle(branch: string) {
       <span><i class="swatch solid" /> PR base</span>
       <span><i class="swatch dashed" /> inferred from git history</span>
       <span>faded: merged or stale (&gt; 30 days)</span>
+      <span><i class="swatch box solid-box" /> with PR (title, branch under it)</span>
+      <span><i class="swatch box dashed-box" /> no PR (branch name)</span>
+      <span><span class="new-badge">new</span> commit in the last 3 days</span>
       <span v-if="graph.hidden > 0">{{ graph.hidden }} more branches hidden</span>
     </div>
 
@@ -174,6 +179,10 @@ function toggle(branch: string) {
                 stale: stale(n),
                 selected: selected === n.branch,
                 root: n.isDefault,
+                fresh: fresh(n),
+                'has-pr': !!n.pr && !n.isDefault,
+                'no-pr': !n.pr && !n.isDefault,
+                [`pr-${n.pr ? prTone(n.pr) : 'none'}`]: !!n.pr && !n.isDefault,
                 'pr-loading': prsLoading && !n.pr && !n.isDefault,
                 match: searching && matches.includes(n.branch),
                 dim: searching && !matches.includes(n.branch),
@@ -186,19 +195,25 @@ function toggle(branch: string) {
             @click="toggle(n.branch)"
             @keydown.enter.prevent="toggle(n.branch)"
           >
+            <!-- a PR node reads "PR title / branch / status"; a branch without PR reads "branch / no PR" -->
             <div class="line">
               <span class="dot" />
-              <strong class="mono clip" :title="n.branch">{{ n.branch }}</strong>
+              <strong class="title clip" :class="{ mono: !n.pr }" :title="n.pr ? n.pr.title : n.branch">{{ n.pr ? n.pr.title : n.branch }}</strong>
               <span v-if="n.isDefault" class="badge">default</span>
+              <span v-if="fresh(n)" class="new-badge" title="Commit in the last 3 days">new</span>
             </div>
-            <div class="line">
-              <PrChip v-if="n.pr" :pr="n.pr" />
-              <span v-else-if="!n.isDefault" class="muted">{{ prsLoading ? 'PR…' : 'no PR' }}</span>
+            <div v-if="n.pr" class="line small">
+              <span class="branch-name mono clip" :title="n.branch">{{ n.branch }}</span>
+              <span class="muted">· {{ ago(n.date) }}</span>
             </div>
-            <div v-if="!n.isDefault" class="line muted small">
-              <span class="mono">↑{{ n.ahead }} ↓{{ n.behind }}</span>
+            <div v-else-if="!n.isDefault" class="line small muted">
+              <span>{{ prsLoading ? 'PR…' : 'no PR' }}</span>
               <span>· {{ ago(n.date) }}</span>
-              <span v-if="n.worktree" class="clip">· {{ n.worktree.name }}</span>
+            </div>
+            <div v-if="!n.isDefault" class="line small">
+              <PrChip v-if="n.pr" :pr="n.pr" />
+              <span class="mono muted">↑{{ n.ahead }} ↓{{ n.behind }}</span>
+              <span v-if="n.worktree" class="muted clip">· {{ n.worktree.name }}</span>
             </div>
           </div>
         </div>

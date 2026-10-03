@@ -57,6 +57,56 @@ describe('BranchGraph', () => {
     expect(text).toContain('↓1')
   })
 
+  describe('PR nodes vs branches without a PR', () => {
+    it('titles a PR node with the PR title and puts the branch underneath', () => {
+      const n = render().get('[data-branch="feat-a"]')
+      expect(n.get('.title').text()).toBe('Add cycle warning')
+      expect(n.get('.branch-name').text()).toBe('feat-a')
+      expect(n.classes()).toContain('has-pr')
+      expect(n.classes()).not.toContain('no-pr')
+    })
+
+    it('titles a node without a PR with its branch and marks it as not a PR', () => {
+      const n = render().get('[data-branch="old"]')
+      expect(n.get('.title').text()).toBe('old')
+      expect(n.find('.branch-name').exists()).toBe(false)
+      expect(n.classes()).toContain('no-pr')
+    })
+
+    it('does not mark the default branch either way', () => {
+      const n = render().get('[data-branch="main"]')
+      expect(n.classes()).not.toContain('no-pr')
+      expect(n.classes()).not.toContain('has-pr')
+    })
+
+    it('tints PR nodes by the state of their PR', () => {
+      const w = render()
+      expect(w.get('[data-branch="feat-a"]').classes()).toContain('pr-open')
+      expect(w.get('[data-branch="feat-b"]').classes()).toContain('pr-merged')
+    })
+  })
+
+  describe('recent activity', () => {
+    const recent = [
+      node({ branch: 'main', isDefault: true, date: '2026-10-02T11:00:00Z' }),
+      node({ branch: 'fresh-one', parent: 'main', via: 'git', date: '2026-10-01T12:00:00Z' }),
+      node({ branch: 'week-old', parent: 'main', via: 'git', date: '2026-09-20T12:00:00Z' }),
+    ]
+    const w = () => render({ graph: { default: 'main', nodes: recent, hidden: 0 } })
+
+    it('gives branches with a commit in the last 3 days a distinct look and a badge', () => {
+      const f = w().get('[data-branch="fresh-one"]')
+      expect(f.classes()).toContain('fresh')
+      expect(f.find('.new-badge').exists()).toBe(true)
+      expect(w().get('[data-branch="week-old"]').classes()).not.toContain('fresh')
+      expect(w().get('[data-branch="week-old"]').find('.new-badge').exists()).toBe(false)
+    })
+
+    it('never highlights the default branch', () => {
+      expect(w().get('[data-branch="main"]').classes()).not.toContain('fresh')
+    })
+  })
+
   it('says when a branch has no PR', () => {
     expect(render().get('[data-branch="old"]').text()).toContain('no PR')
   })
