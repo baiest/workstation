@@ -161,6 +161,50 @@ func TestCLISessionsCarryTheirState(t *testing.T) {
 	}
 }
 
+// A chat that starts in the repo root and then works inside a worktree belongs to
+// the worktree: that is where the work is. Where it started only says which
+// project folder holds its transcript (and so where `claude --resume` must run).
+func TestSessionBelongsToWhereItWorksNow(t *testing.T) {
+	lines := `{"type":"mode","mode":"normal"}` + "\n" +
+		`{"type":"user","timestamp":"2026-10-02T10:00:00.000Z","cwd":"/repo","message":{"role":"user","content":"start here"}}` + "\n" +
+		`{"type":"assistant","timestamp":"2026-10-02T10:01:00.000Z","cwd":"/repo","message":{"role":"assistant","content":[{"type":"text","text":"ok"}]}}` + "\n" +
+		`{"type":"user","timestamp":"2026-10-02T10:30:00.000Z","cwd":"/repo/.claude/worktrees/REG-5393","message":{"role":"user","content":"keep going"}}` + "\n" +
+		`{"type":"assistant","timestamp":"2026-10-02T10:31:00.000Z","cwd":"/repo/.claude/worktrees/REG-5393","message":{"role":"assistant","content":[{"type":"text","text":"done"}]}}` + "\n"
+	p := filepath.Join(t.TempDir(), "s.jsonl")
+	write(t, p, lines)
+
+	info, err := readTranscript(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Cwd != "/repo/.claude/worktrees/REG-5393" {
+		t.Errorf("the session works in the worktree now: Cwd = %q", info.Cwd)
+	}
+	if info.StartCwd != "/repo" {
+		t.Errorf("the transcript lives under where it started: StartCwd = %q", info.StartCwd)
+	}
+}
+
+func TestSessionThatNeverMovedHasNoSeparateStart(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "projects", "enc", "s1.jsonl"), userText("hi")+assistantEnd)
+	got, err := NewCLI(root, func(int) bool { return false }).Sessions()
+	if err != nil || len(got) != 1 || got[0].StartCwd != "" || got[0].Cwd != "/w" {
+		t.Fatalf("%+v %v", got, err)
+	}
+}
+
+func TestSessionThatMovedExposesBothDirectories(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "projects", "enc", "s1.jsonl"),
+		`{"type":"user","timestamp":"2026-10-02T10:00:00.000Z","cwd":"/repo","message":{"role":"user","content":"hi"}}`+"\n"+
+			`{"type":"assistant","timestamp":"2026-10-02T10:05:00.000Z","cwd":"/repo/wt","message":{"role":"assistant","content":[{"type":"text","text":"ok"}]}}`+"\n")
+	got, err := NewCLI(root, func(int) bool { return false }).Sessions()
+	if err != nil || len(got) != 1 || got[0].Cwd != "/repo/wt" || got[0].StartCwd != "/repo" {
+		t.Fatalf("%+v %v", got, err)
+	}
+}
+
 // A CLI session rarely has a title, so what identifies a chat is what you asked first.
 func TestTranscriptPromptIsTheFirstRealUserMessage(t *testing.T) {
 	long := strings.Repeat("palabra ", 60)

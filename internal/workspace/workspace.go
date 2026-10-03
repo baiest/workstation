@@ -93,8 +93,8 @@ func (b Builder) Build() (Workspace, error) {
 	for _, s := range sessions {
 		s.Resumable = s.ResumeID() != ""
 		if reason := r.place(s); reason != "" {
-			if reason == reasonMissing {
-				s.Resumable = false // `claude --resume` must run in the original directory
+			if reason == reasonMissing && !dirExists(s.StartCwd) {
+				s.Resumable = false // `claude --resume` must run where the chat began
 			}
 			ws.Unlinked = append(ws.Unlinked, Unlinked{Session: s, Reason: reason})
 		}
@@ -102,6 +102,14 @@ func (b Builder) Build() (Workspace, error) {
 
 	ws.Repos = r.finish()
 	return ws, nil
+}
+
+func dirExists(dir string) bool {
+	if dir == "" {
+		return false
+	}
+	st, err := os.Stat(dir)
+	return err == nil && st.IsDir()
 }
 
 // --- resolver ---------------------------------------------------------------

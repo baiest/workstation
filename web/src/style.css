@@ -296,3 +296,12 @@ button.danger:hover:not(:disabled) { background: var(--danger); border-color: va
 .session .s-actions { flex: none; display: flex; gap: 0.35rem; }
 .session .s-actions button { font-size: 0.8rem; padding: 0.15rem 0.6rem; }
 .session .s-last { margin: 0.15rem 0 0 8.1rem; font-size: 0.85rem; }
+
+.active { margin: 0 0 1.5rem; }
+.active ul { list-style: none; margin: 0.3rem 0; padding: 0; }
+.active-row { display: flex; align-items: baseline; gap: 0.7rem; padding: 0.3rem 0.6rem; font-size: 0.93rem; border-left: 3px solid var(--state, var(--stopped)); }
+.active-row.tone-working { --state: var(--working); }
+.active-row.tone-attention { --state: var(--unknown); }
+.active-row.tone-danger { --state: var(--danger); }
+.active-row.tone-idle { --state: var(--idle); }
+.active-row .s-title { max-width: 40ch; }

@@ -61,6 +61,9 @@ func (c *CLI) Sessions() ([]Session, error) {
 				ID: id, Source: SourceCLI, Cwd: info.Cwd, Branch: info.Branch, Prompt: info.Prompt,
 				LastActivity: info.LastActivity, LastMessage: info.LastMessage,
 			}
+			if info.StartCwd != "" && info.StartCwd != info.Cwd {
+				s.StartCwd = info.StartCwd
+			}
 			if validSlug(info.Slug) {
 				s.Slug = info.Slug
 				s.HasPlan = c.planExists(info.Slug)

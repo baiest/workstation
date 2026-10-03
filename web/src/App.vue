@@ -8,6 +8,8 @@ import SessionsModal from './components/SessionsModal.vue'
 import TicketList from './components/TicketList.vue'
 import WorktreeCard from './components/WorktreeCard.vue'
 import WorktreeCleanupModal from './components/WorktreeCleanupModal.vue'
+import ActiveSessions from './components/ActiveSessions.vue'
+import { activeSessions } from './active'
 import { loadBranchData, newBranchState, type BranchState } from './branchLoader'
 import { matchesFilter, relativeTime, statusLabel } from './format'
 import { resumeDecision, type ResumeWith } from './resume'
@@ -107,6 +109,7 @@ const isHidden = (r: Repo) => hidden.value.includes(r.path)
 const hiddenRepos = computed(() => (data.value?.repos ?? []).filter(isHidden))
 // "Who needs me": Claude sessions waiting for you / working / failed, across the visible projects
 const sessionSummary = computed(() => summarizeSessions((data.value?.repos ?? []).filter((r) => !isHidden(r))))
+const activeRows = computed(() => activeSessions(data.value?.repos ?? [], data.value?.unlinked ?? [], new Date(), 24, isHidden))
 
 function toggleRepo(repo: Repo) {
   hidden.value = toggleHidden(hidden.value, repo.path)
@@ -291,6 +294,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
     <p v-if="toast" class="banner err" @click="toast = ''">{{ toast }}</p>
     <p v-if="notice" class="banner info" @click="notice = ''">{{ notice }}</p>
     <p v-if="!data && !error" class="muted">Loading…</p>
+
+    <ActiveSessions :rows="activeRows" @resume="(id) => resumeSession(id)" @plan="(id, title) => (planFor = { id, title })" />
 
     <section v-for="repo in repos" :key="repo.path">
       <h2>

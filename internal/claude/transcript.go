@@ -18,6 +18,7 @@ const (
 )
 
 type transcriptInfo struct {
+	StartCwd     string    // directory of the first records: where the chat began
 	Prompt       string    // what the user asked first: how a chat without a title is told apart
 	Phase        Phase     // where the conversation ends (see state.go)
 	PhaseAt      time.Time // timestamp of the record that decided the phase
@@ -95,8 +96,13 @@ func readTranscript(path string) (transcriptInfo, error) {
 		}
 	}
 
-	if headCwd != "" {
-		info.Cwd = headCwd // the session's starting directory identifies it
+	// Cwd is where the session works NOW (the latest record): that is the worktree it
+	// belongs to. A chat often starts in the repo root and then enters a worktree.
+	// StartCwd is where it began, which names the project folder holding the
+	// transcript, and so where `claude --resume` has to run.
+	info.StartCwd = headCwd
+	if info.Cwd == "" {
+		info.Cwd = headCwd
 	}
 	if info.Branch == "" {
 		info.Branch = headBranch

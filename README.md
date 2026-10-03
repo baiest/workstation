@@ -14,6 +14,7 @@ For every worktree it shows the repository, branch, path, Git state (staged / mo
 ahead / behind), last commit, and the linked Claude session (status, last activity, title, last message).
 
 - **Worktrees** — every worktree of every repo, with its Claude session and PR status.
+- **Active now** — one row per Claude session that is live or was touched in the last 24 h, across all worktrees, most urgent first (waiting for you, failed, working), with the worktree, branch and ticket it works in.
 - **Plan button** — read the plan a Claude session produced, rendered as Markdown.
 - **Branch graph** — the active branches of a repo as a tree: which depends on which, with PR status
   (open / draft / merged / declined), approvals, review state and checks. Zoom (buttons, **Ctrl + wheel**, *Fit*) and
@@ -296,7 +297,7 @@ For Server / DC the clone URL host is assumed to serve the REST API at `https://
 
 ### Session ↔ worktree relationship
 
-Not assumed. A session is linked to a worktree only if its `cwd` is exactly a worktree path from
+Not assumed. A session belongs to where it works **now**: the `cwd` of its latest transcript records, not the folder it started in (a chat often starts in the repo root and then enters a worktree). It is linked to a worktree only if that `cwd` is exactly a worktree path from
 `git worktree list`, or `git rev-parse --show-toplevel` run in that `cwd` returns one (sessions started in a
 subdirectory). A path-prefix match is deliberately **not** used: a session from a deleted
 `repo/.claude/worktrees/x` would wrongly attach to the main worktree.

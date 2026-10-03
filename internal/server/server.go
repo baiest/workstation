@@ -396,10 +396,11 @@ func (s *Server) resume(req actionRequest, ws workspace.Workspace) error {
 
 	switch req.Mode {
 	case "", "cli":
-		if _, err := os.Stat(sess.Cwd); err != nil {
+		dir, ok := resumeDir(sess)
+		if !ok {
 			return badRequest("session directory no longer exists")
 		}
-		return s.launcher.Resume(sess.Cwd, sess.ResumeID())
+		return s.launcher.Resume(dir, sess.ResumeID())
 	case "desktop":
 		if sess.DesktopID == "" {
 			return badRequest("this session was not started in Claude Desktop")
@@ -407,6 +408,20 @@ func (s *Server) resume(req actionRequest, ws workspace.Workspace) error {
 		return s.launcher.Desktop()
 	}
 	return badRequest("unknown resume mode")
+}
+
+// resumeDir picks where `claude --resume` runs: the directory the chat started in
+// (it holds the transcript), else where it works now.
+func resumeDir(s claude.Session) (string, bool) {
+	for _, d := range []string{s.StartCwd, s.Cwd} {
+		if d == "" {
+			continue
+		}
+		if st, err := os.Stat(d); err == nil && st.IsDir() {
+			return d, true
+		}
+	}
+	return "", false
 }
 
 func knownWorktree(ws workspace.Workspace, path string) bool {

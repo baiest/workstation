@@ -35,7 +35,8 @@ type Session struct {
 	Source         Source    `json:"source"`
 	Title          string    `json:"title,omitempty"`
 	Prompt         string    `json:"prompt,omitempty"`    // the first thing the user asked: tells chats apart when there is no title
-	Cwd            string    `json:"cwd"`                 // directory the session ran in (usually a worktree)
+	Cwd            string    `json:"cwd"`                 // where the session works NOW: the worktree it belongs to
+	StartCwd       string    `json:"startCwd,omitempty"`  // where it began, if that differs: holds the transcript, so resume runs there
 	OriginCwd      string    `json:"originCwd,omitempty"` // Desktop only: the repo the worktree was created from
 	Branch         string    `json:"branch,omitempty"`
 	Status         Status    `json:"status"`

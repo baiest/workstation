@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -805,4 +806,17 @@ func TestStaticFiles(t *testing.T) {
 func jsonStr(s string) string {
 	b, _ := json.Marshal(s)
 	return string(b)
+}
+
+func TestResumeDirPrefersWhereTheChatBegan(t *testing.T) {
+	start, now := t.TempDir(), t.TempDir()
+	if d, ok := resumeDir(claude.Session{StartCwd: start, Cwd: now}); !ok || d != start {
+		t.Fatalf("got %q %v, want start dir", d, ok)
+	}
+	if d, ok := resumeDir(claude.Session{StartCwd: filepath.Join(start, "gone"), Cwd: now}); !ok || d != now {
+		t.Fatalf("got %q %v, want current dir fallback", d, ok)
+	}
+	if _, ok := resumeDir(claude.Session{Cwd: filepath.Join(now, "gone")}); ok {
+		t.Fatal("no directory exists: must not resume")
+	}
 }
