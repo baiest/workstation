@@ -229,4 +229,23 @@ describe('WorktreeCard', () => {
     await w.get('[data-action=resume]').trigger('click')
     expect(w.emitted('resume')![0]).toEqual(['old'])
   })
+  describe('less noise by default', () => {
+    it('keeps folder, path, last commit and last words behind a Details toggle', async () => {
+      const w = render(worktree({ sessions: [session({ lastMessage: 'All done here' })] }))
+      const details = w.get('[data-details]')
+      expect(details.attributes('style') ?? '').toContain('display: none')
+      await w.get('[data-toggle-details]').trigger('click')
+      expect(details.attributes('style') ?? '').not.toContain('display: none')
+      expect(details.text()).toContain('C:\\r\\REG-5413')
+      expect(details.text()).toContain('All done here')
+    })
+
+    it('still shows what matters at a glance: title, git, state and the chat name', () => {
+      const w = render(worktree({ sessions: [session({ prompt: 'Fix the cycle warning' })] }))
+      const glance = w.get('[data-glance]').text()
+      expect(glance).toContain('4 modified')
+      expect(glance).toContain('Working')
+      expect(glance).toContain('Fix the cycle warning')
+    })
+  })
 })

@@ -305,3 +305,9 @@ button.danger:hover:not(:disabled) { background: var(--danger); border-color: va
 .active-row.tone-danger { --state: var(--danger); }
 .active-row.tone-idle { --state: var(--idle); }
 .active-row .s-title { max-width: 40ch; }
+
+.card .glance { display: flex; flex-direction: column; gap: 0.25rem; }
+.card .glance .row { gap: 0.6rem; flex-wrap: wrap; }
+.card .chat { margin: 0; color: var(--muted); font-size: 0.93rem; }
+.card .details { display: flex; flex-direction: column; gap: 0.35rem; padding-top: 0.4rem; border-top: 1px solid var(--border); }
+.card .details-toggle { align-self: flex-start; font-size: 0.85rem; color: var(--muted); }

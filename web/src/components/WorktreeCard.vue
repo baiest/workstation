@@ -17,6 +17,7 @@ const emit = defineEmits<{
   sessions: [path: string] // open the full list of this worktree's sessions
 }>()
 
+const open = ref(false)
 const latest = computed(() => props.worktree.sessions[0])
 const state = computed(() => latest.value?.status ?? 'none')
 const tone = computed(() => stateTone(latest.value))
@@ -55,45 +56,47 @@ const ago = (iso: string) => relativeTime(iso, props.now)
     </header>
 
     <div v-if="showBranchLine" class="branch mono clip">{{ branchText }}</div>
-    <div class="row">
-      <span class="k">Folder</span>
-      <span class="folder mono clip" :title="worktree.path">{{ worktree.name }}</span>
-    </div>
-    <div class="path mono" :title="worktree.path"><bdi>{{ worktree.path }}</bdi></div>
 
-    <div class="row">
-      <span class="k">Git</span>
-      <span v-if="worktree.gitError" class="err" :title="worktree.gitError">{{ worktree.gitError }}</span>
-      <span v-else>
-        <span :class="{ changed: worktree.git.dirty }">{{ gitSummary(worktree.git) }}</span>
-        <span v-if="ahead" class="sync">↑{{ ahead }}</span>
-        <span v-if="behind" class="sync">↓{{ behind }}</span>
-      </span>
-    </div>
-    <div v-if="pr" class="row">
-      <span class="k">PR</span>
-      <PrChip :pr="pr" />
-    </div>
-    <div v-if="worktree.git.lastCommit" class="row">
-      <span class="k">Commit</span>
-      <span class="clip">
-        <span class="mono">{{ worktree.git.lastCommit.hash }}</span>
-        {{ worktree.git.lastCommit.subject }} · {{ ago(worktree.git.lastCommit.date) }}
-      </span>
+    <div data-glance class="glance">
+      <div class="row">
+        <span v-if="worktree.gitError" class="err" :title="worktree.gitError">{{ worktree.gitError }}</span>
+        <template v-else>
+          <span :class="{ changed: worktree.git.dirty }">{{ gitSummary(worktree.git) }}</span>
+          <span v-if="ahead" class="sync">↑{{ ahead }}</span>
+          <span v-if="behind" class="sync">↓{{ behind }}</span>
+        </template>
+        <PrChip v-if="pr" :pr="pr" />
+      </div>
+      <div class="row claude">
+        <span v-if="!latest" class="muted">No Claude session</span>
+        <template v-else>
+          <span :title="sessionHint(latest) || (latest.rawStatus ? `raw status: ${latest.rawStatus}` : '')">
+            {{ sessionLabel(latest) }} · {{ ago(latest.lastActivity) }}
+          </span>
+          <button v-if="extra > 0" class="link" @click="emit('sessions', worktree.path)">+{{ extra }} more</button>
+        </template>
+      </div>
+      <p v-if="latest?.title || latest?.prompt" class="chat clip" :title="latest.title || latest.prompt">{{ latest.title || latest.prompt }}</p>
     </div>
 
-    <div class="row">
-      <span class="k">Claude</span>
-      <span v-if="!latest" class="muted">No Claude session</span>
-      <span v-else :title="sessionHint(latest) || (latest.rawStatus ? `raw status: ${latest.rawStatus}` : '')">
-        {{ sessionLabel(latest) }} · {{ ago(latest.lastActivity) }}
-        <button v-if="extra > 0" class="link" @click="emit('sessions', worktree.path)">+{{ extra }} more</button>
-      </span>
+    <button class="link details-toggle" data-toggle-details :aria-expanded="open" @click="open = !open">
+      {{ open ? 'Hide details' : 'Details' }}
+    </button>
+    <div v-show="open" data-details class="details">
+      <div class="row">
+        <span class="k">Folder</span>
+        <span class="folder mono clip" :title="worktree.path">{{ worktree.name }}</span>
+      </div>
+      <div class="path mono" :title="worktree.path"><bdi>{{ worktree.path }}</bdi></div>
+      <div v-if="worktree.git.lastCommit" class="row">
+        <span class="k">Commit</span>
+        <span class="clip">
+          <span class="mono">{{ worktree.git.lastCommit.hash }}</span>
+          {{ worktree.git.lastCommit.subject }} · {{ ago(worktree.git.lastCommit.date) }}
+        </span>
+      </div>
+      <p v-if="latest?.lastMessage" class="message">{{ latest.lastMessage }}</p>
     </div>
-    <p v-if="latest?.title || latest?.prompt || latest?.lastMessage" class="message">
-      <strong v-if="latest.title || latest.prompt">{{ latest.title || latest.prompt }}</strong>
-      {{ latest.lastMessage }}
-    </p>
 
     <footer>
       <button data-action="terminal" @click="emit('terminal', worktree.path)">Terminal</button>
