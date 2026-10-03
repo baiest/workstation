@@ -199,3 +199,43 @@ func TestEditorCommand(t *testing.T) {
 		t.Errorf("a real .exe takes any valid path as one argument: %+v %v", got, err)
 	}
 }
+
+func TestPromptCommandKeepsThePromptOffTheCommandLine(t *testing.T) {
+	const hostile = `x'; Remove-Item -Recurse C:\ ; "$(calc)"`
+	sp, err := promptCommand("windows", `C:\r`, hostile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range sp.Args {
+		if strings.Contains(a, "Remove-Item") {
+			t.Fatalf("prompt leaked into args: %q", sp.Args)
+		}
+	}
+	if len(sp.Env) != 1 || !strings.HasPrefix(sp.Env[0], promptEnv+"=") || strings.Contains(sp.Env[0], `"`) {
+		t.Fatalf("env %q", sp.Env)
+	}
+	if sp.Dir != `C:\r` || !sp.NewConsole {
+		t.Fatalf("spec %+v", sp)
+	}
+
+	mac, err := promptCommand("darwin", "/r", "it's")
+	if err != nil || !strings.Contains(strings.Join(mac.Args, " "), `claude 'it'\\''s'`) {
+		t.Fatalf("darwin %v %v", mac, err)
+	}
+	if _, err := promptCommand("windows", `C:\r`, " \n "); err == nil {
+		t.Error("empty prompt must be refused")
+	}
+	if _, err := promptCommand("plan9", "/x", "hi"); err == nil {
+		t.Error("unsupported OS must be refused")
+	}
+}
+
+func TestSanitizePrompt(t *testing.T) {
+	if got := sanitizePrompt("a\x00b\"c\nd\x1b"); got != "ab'c\nd" {
+		t.Errorf("got %q", got)
+	}
+	long := sanitizePrompt(strings.Repeat("é", maxPromptBytes))
+	if len(long) > maxPromptBytes+32 || !strings.HasSuffix(long, "[prompt truncated]") {
+		t.Errorf("not truncated: %d bytes", len(long))
+	}
+}

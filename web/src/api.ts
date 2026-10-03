@@ -65,9 +65,9 @@ export async function runWorktreeCleanup(
   return (await res.json()).results as WtResult[]
 }
 
-export type Action = 'terminal' | 'editor' | 'resume'
+export type Action = 'terminal' | 'editor' | 'resume' | 'cleanup'
 
-export async function runAction(action: Action, body: { path?: string; sessionId?: string; mode?: 'cli' | 'desktop' }): Promise<void> {
+export async function runAction(action: Action, body: { path?: string; sessionId?: string; mode?: 'cli' | 'desktop'; days?: number }): Promise<void> {
   const res = await fetch(`/api/actions/${action}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

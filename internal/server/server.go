@@ -334,6 +334,7 @@ type actionRequest struct {
 	Path      string `json:"path"`
 	SessionID string `json:"sessionId"`
 	Mode      string `json:"mode"` // resume only: "cli" (default) or "desktop"
+	Days      int    `json:"days"` // cleanup only: how old "old" is (default 14)
 }
 
 func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
@@ -342,7 +343,7 @@ func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	action := r.PathValue("action")
-	if action != "terminal" && action != "editor" && action != "resume" {
+	if action != "terminal" && action != "editor" && action != "resume" && action != "cleanup" {
 		http.NotFound(w, r)
 		return
 	}
@@ -378,6 +379,14 @@ func (b badRequest) Error() string { return string(b) }
 func (s *Server) run(action string, req actionRequest, ws workspace.Workspace) error {
 	if action == "resume" {
 		return s.resume(req, ws)
+	}
+	if action == "cleanup" {
+		repo, ok := findRepo(ws, req.Path)
+		if !ok {
+			return badRequest("unknown repo")
+		}
+		days := normalizeCleanupDays(req.Days)
+		return s.launcher.Prompt(repo.Path, s.cleanupPrompt(repo, ws, days, time.Now()))
 	}
 
 	if !knownWorktree(ws, req.Path) {

@@ -285,13 +285,18 @@ async function changeNote(path: string, patch: Note) {
   }
 }
 
-async function act(action: Action, body: { path?: string; sessionId?: string; mode?: ResumeWith }) {
+async function act(action: Action, body: { path?: string; sessionId?: string; mode?: ResumeWith; days?: number }) {
   try {
     await runAction(action, body)
     toast.value = ''
   } catch (e) {
     toast.value = `${action} failed: ${e instanceof Error ? e.message : e}`
   }
+}
+
+async function cleanWithClaude(repo: Repo) {
+  await act('cleanup', { path: repo.path, days: 14 })
+  if (!toast.value) notice.value = 'Claude opened in a terminal with the cleanup prompt'
 }
 
 // Everything of a repo grouped by ticket. PRs come from the branch graph, so the
@@ -436,6 +441,13 @@ onBeforeUnmount(() => {
           @click="wtCleanupFor = repo"
         >
           Clean up worktrees…<span v-if="removableCount(repo)" class="count"> ({{ removableCount(repo) }} merged)</span>
+        </button>
+        <button
+          data-claude-cleanup
+          title="Open Claude in a terminal with a prompt to review and clean up merged worktrees, old branches and stale sessions (it asks before deleting)"
+          @click="cleanWithClaude(repo)"
+        >
+          Clean up with Claude…
         </button>
       </div>
       <StageBoard

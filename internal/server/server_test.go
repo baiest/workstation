@@ -21,9 +21,16 @@ import (
 )
 
 type fakeLauncher struct {
-	calls  []string
-	err    error
-	editor string
+	calls   []string
+	err     error
+	editor  string
+	prompts []string
+}
+
+func (f *fakeLauncher) Prompt(dir, prompt string) error {
+	f.calls = append(f.calls, "prompt:"+dir)
+	f.prompts = append(f.prompts, prompt)
+	return f.err
 }
 
 func (f *fakeLauncher) Terminal(dir string) error {

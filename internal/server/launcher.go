@@ -17,7 +17,8 @@ type Launcher interface {
 	Terminal(dir string) error
 	Editor(dir string) error
 	Resume(dir, sessionID string) error
-	EditorName() string // "cursor", "code" or "" when none is on PATH
+	Prompt(dir, prompt string) error // a terminal in dir running `claude` with prompt as its first message
+	EditorName() string              // "cursor", "code" or "" when none is on PATH
 }
 
 // OSLauncher launches terminals and editors for the current OS.
@@ -35,7 +36,8 @@ type spec struct {
 	Name       string
 	Args       []string
 	Dir        string
-	NewConsole bool // Windows: give the process its own console window
+	NewConsole bool     // Windows: give the process its own console window
+	Env        []string // extra KEY=VALUE entries on top of the inherited environment
 }
 
 // Desktop opens Claude Desktop through its claude:// protocol handler. No link
@@ -64,6 +66,17 @@ func desktopCommand(goos string) (spec, error) {
 func (OSLauncher) Terminal(dir string) error { return launchTerminal(dir, "") }
 
 func (OSLauncher) Resume(dir, sessionID string) error { return launchTerminal(dir, sessionID) }
+
+func (OSLauncher) Prompt(dir, prompt string) error {
+	if err := validateDir(dir); err != nil {
+		return err
+	}
+	sp, err := promptCommand(runtime.GOOS, dir, prompt)
+	if err != nil {
+		return err
+	}
+	return start(sp)
+}
 
 func launchTerminal(dir, sessionID string) error {
 	if err := validateDir(dir); err != nil {
@@ -108,6 +121,9 @@ func findEditor() (name, path string) {
 func start(sp spec) error {
 	cmd := exec.Command(sp.Name, sp.Args...)
 	cmd.Dir = sp.Dir
+	if len(sp.Env) > 0 {
+		cmd.Env = append(os.Environ(), sp.Env...)
+	}
 	if sp.NewConsole {
 		setNewConsole(cmd)
 	}
@@ -178,6 +194,53 @@ func terminalCommand(goos, dir, resumeID string) (spec, error) {
 			return spec{Name: "open", Args: []string{"-a", "Terminal", dir}}, nil
 		}
 		script := "cd " + shellQuote(dir) + " && claude --resume " + resumeID
+		return spec{Name: "osascript", Args: []string{
+			"-e", `tell application "Terminal" to do script "` + appleScriptEscape(script) + `"`,
+			"-e", `tell application "Terminal" to activate`}}, nil
+	}
+	return spec{}, fmt.Errorf("opening a terminal is not supported on %s", goos)
+}
+
+// promptEnv carries the prompt to PowerShell, so the text is never part of a
+// command line that something could re-parse.
+const promptEnv = "WORKSTATION_PROMPT"
+
+const maxPromptBytes = 16 << 10
+
+// sanitizePrompt drops control characters (newlines stay), swaps double quotes
+// for single ones (Windows PowerShell 5.1 mangles them when it hands arguments
+// to a native program) and caps the length.
+func sanitizePrompt(s string) string {
+	s = strings.Map(func(r rune) rune {
+		switch {
+		case r == '"':
+			return '\''
+		case r == '\n':
+			return r
+		case r < 0x20 || r == 0x7f:
+			return -1
+		}
+		return r
+	}, s)
+	if len(s) > maxPromptBytes {
+		s = strings.ToValidUTF8(s[:maxPromptBytes], "") + "\n[prompt truncated]"
+	}
+	return s
+}
+
+// promptCommand builds the process that opens a terminal in dir running
+// `claude <prompt>`.
+func promptCommand(goos, dir, prompt string) (spec, error) {
+	prompt = sanitizePrompt(prompt)
+	if strings.TrimSpace(prompt) == "" {
+		return spec{}, badRequest("empty prompt")
+	}
+	switch goos {
+	case "windows":
+		return spec{Name: "powershell.exe", Args: []string{"-NoExit", "-Command", "claude $env:" + promptEnv},
+			Dir: dir, NewConsole: true, Env: []string{promptEnv + "=" + prompt}}, nil
+	case "darwin":
+		script := "cd " + shellQuote(dir) + " && claude " + shellQuote(prompt)
 		return spec{Name: "osascript", Args: []string{
 			"-e", `tell application "Terminal" to do script "` + appleScriptEscape(script) + `"`,
 			"-e", `tell application "Terminal" to activate`}}, nil
