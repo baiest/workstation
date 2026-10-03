@@ -30,9 +30,9 @@ func (s *Service) now() time.Time {
 
 // Preview lists what could be removed. Without PR data nothing is offered:
 // nothing would prove a worktree's work is merged.
-func (s *Service) Preview(repo workspace.Repo, days int) (Response, error) {
+func (s *Service) Preview(repo workspace.Repo, days, dormantDays int) (Response, error) {
 	prs, warning := s.PRs(repo.Path, false)
-	p, err := Candidates(Input{Repo: repo, PRs: prs, Days: days, Now: s.now()})
+	p, err := Candidates(Input{Repo: repo, PRs: prs, Days: days, Now: s.now(), IncludeDormant: dormantDays > 0, DormantDays: dormantDays})
 	if err != nil {
 		return Response{}, err
 	}
@@ -45,7 +45,7 @@ func (s *Service) Preview(repo workspace.Repo, days int) (Response, error) {
 
 // Remove removes the chosen worktrees. It always re-fetches the pull requests: a
 // destructive action must not rest on a cache.
-func (s *Service) Remove(repo workspace.Repo, days int, req []RemoveRequest) ([]RemoveResult, error) {
+func (s *Service) Remove(repo workspace.Repo, days, dormantDays int, req []RemoveRequest) ([]RemoveResult, error) {
 	prs, _ := s.PRs(repo.Path, true)
-	return Remove(Input{Repo: repo, PRs: prs, Days: days, Now: s.now()}, req)
+	return Remove(Input{Repo: repo, PRs: prs, Days: days, Now: s.now(), IncludeDormant: dormantDays > 0, DormantDays: dormantDays}, req)
 }

@@ -18,8 +18,9 @@ const maxWorktreeRemovals = 100
 // worktree itself; this layer validates the request and hands it a freshly
 // built repo, never the snapshot the page loaded earlier.
 type WorktreeCleanupService interface {
-	Preview(repo workspace.Repo, days int) (wtclean.Response, error)
-	Remove(repo workspace.Repo, days int, req []wtclean.RemoveRequest) ([]wtclean.RemoveResult, error)
+	// dormantDays > 0 also offers worktrees idle for that many days (see wtclean.Input.IncludeDormant).
+	Preview(repo workspace.Repo, days, dormantDays int) (wtclean.Response, error)
+	Remove(repo workspace.Repo, days, dormantDays int, req []wtclean.RemoveRequest) ([]wtclean.RemoveResult, error)
 }
 
 // WithWorktreeCleanup enables GET and POST /api/worktree-cleanup.
@@ -43,14 +44,13 @@ func (s *Server) handleWorktreeCleanupPreview(w http.ResponseWriter, r *http.Req
 		return
 	}
 	q := r.URL.Query()
-	days := 0
-	if v := q.Get("days"); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil {
-			http.Error(w, "days must be a number", http.StatusBadRequest)
-			return
-		}
-		days = n
+	days, ok := intParam(w, q.Get("days"), "days")
+	if !ok {
+		return
+	}
+	dormantDays, ok := intParam(w, q.Get("dormantDays"), "dormantDays")
+	if !ok {
+		return
 	}
 	repo, ok, err := s.freshRepo(q.Get("repo"))
 	if err != nil {
@@ -62,7 +62,7 @@ func (s *Server) handleWorktreeCleanupPreview(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	resp, err := s.worktreeCleanup.Preview(repo, days)
+	resp, err := s.worktreeCleanup.Preview(repo, days, dormantDays)
 	if s.cleanupFailed(w, err) {
 		return
 	}
@@ -72,6 +72,7 @@ func (s *Server) handleWorktreeCleanupPreview(w http.ResponseWriter, r *http.Req
 type worktreeCleanupRequest struct {
 	Repo      string                  `json:"repo"`
 	Days      int                     `json:"days"`
+	Dormant   int                     `json:"dormantDays"` // 0 = only merged worktrees
 	Worktrees []wtclean.RemoveRequest `json:"worktrees"`
 }
 
@@ -99,7 +100,7 @@ func (s *Server) handleWorktreeCleanupRemove(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	results, err := s.worktreeCleanup.Remove(repo, req.Days, req.Worktrees)
+	results, err := s.worktreeCleanup.Remove(repo, req.Days, req.Dormant, req.Worktrees)
 	if s.cleanupFailed(w, err) {
 		return
 	}
@@ -145,4 +146,17 @@ func validateWorktreeRequest(req worktreeCleanupRequest) string {
 		}
 	}
 	return ""
+}
+
+// intParam reads an optional whole number from the query; it answers 400 itself when it is not one.
+func intParam(w http.ResponseWriter, raw, name string) (int, bool) {
+	if raw == "" {
+		return 0, true
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 0 {
+		http.Error(w, name+" must be a number", http.StatusBadRequest)
+		return 0, false
+	}
+	return n, true
 }

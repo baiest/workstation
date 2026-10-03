@@ -31,6 +31,11 @@ type Input struct {
 	PRs  []forge.PR
 	Days int       // the PR must have been merged at least this long ago (default 7)
 	Now  time.Time // zero = time.Now()
+
+	// IncludeDormant also offers worktrees idle for DormantDays (default 14) that have no PR in
+	// flight and whose commits are merged or on a remote. Off by default: only merged ones are offered.
+	IncludeDormant bool
+	DormantDays    int
 }
 
 type Candidate struct {
@@ -42,6 +47,9 @@ type Candidate struct {
 	PRTitle  string    `json:"prTitle"`
 	PRURL    string    `json:"prUrl,omitempty"`
 	MergedAt time.Time `json:"mergedAt"`
+
+	Kind         string    `json:"kind"`                  // KindMerged, KindDormantMerged, KindDormantOnRemote
+	LastActivity time.Time `json:"lastActivity,omitzero"` // dormant ones: the newest commit or session
 }
 
 // Skipped is a worktree with a merged PR that was kept, and why.
@@ -130,12 +138,21 @@ func Candidates(in Input) (Preview, error) {
 			default:
 				out.Candidates = append(out.Candidates, Candidate{
 					Path: w.Path, Name: w.Name, Branch: w.Branch, SHA: head,
-					PRNumber: pr.Number, PRTitle: pr.Title, PRURL: pr.URL, MergedAt: mergedAt,
+					PRNumber: pr.Number, PRTitle: pr.Title, PRURL: pr.URL, MergedAt: mergedAt, Kind: KindMerged,
 				})
 			}
 		}
 	}
-	sort.Slice(out.Candidates, func(i, j int) bool { return out.Candidates[i].Name < out.Candidates[j].Name })
+	if in.IncludeDormant {
+		dormantCandidates(in, def, prs, now, &out)
+	}
+	sort.Slice(out.Candidates, func(i, j int) bool {
+		a, b := out.Candidates[i], out.Candidates[j]
+		if (a.Kind == KindMerged) != (b.Kind == KindMerged) {
+			return a.Kind == KindMerged // finished work first
+		}
+		return a.Name < b.Name
+	})
 	sort.Slice(out.Skipped, func(i, j int) bool { return out.Skipped[i].Name < out.Skipped[j].Name })
 	return out, nil
 }

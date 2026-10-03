@@ -693,21 +693,22 @@ func TestCleanupDeleteEndpoint(t *testing.T) {
 type fakeWT struct {
 	repo    string
 	days    int
+	dormant int
 	req     []wtclean.RemoveRequest
 	removes int
 	err     error
 }
 
-func (f *fakeWT) Preview(repo workspace.Repo, days int) (wtclean.Response, error) {
-	f.repo, f.days = repo.Path, days
+func (f *fakeWT) Preview(repo workspace.Repo, days, dormantDays int) (wtclean.Response, error) {
+	f.repo, f.days, f.dormant = repo.Path, days, dormantDays
 	return wtclean.Response{
 		Preview:  wtclean.Preview{Days: 7, Candidates: []wtclean.Candidate{{Path: "/p/done", Name: "done", Branch: "done", SHA: "abc", PRNumber: 3}}},
 		Warnings: []string{},
 	}, f.err
 }
 
-func (f *fakeWT) Remove(repo workspace.Repo, days int, req []wtclean.RemoveRequest) ([]wtclean.RemoveResult, error) {
-	f.repo, f.days, f.req = repo.Path, days, req
+func (f *fakeWT) Remove(repo workspace.Repo, days, dormantDays int, req []wtclean.RemoveRequest) ([]wtclean.RemoveResult, error) {
+	f.repo, f.days, f.dormant, f.req = repo.Path, days, dormantDays, req
 	f.removes++
 	var out []wtclean.RemoveResult
 	for _, r := range req {

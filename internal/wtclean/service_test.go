@@ -26,7 +26,7 @@ func TestServicePreviewMayUseCacheButRemoveNeverDoes(t *testing.T) {
 	s := &Service{PRs: src.get, Now: func() time.Time { return f.now }}
 	repo := f.build(t, "live")
 
-	p, err := s.Preview(repo, 0)
+	p, err := s.Preview(repo, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +40,7 @@ func TestServicePreviewMayUseCacheButRemoveNeverDoes(t *testing.T) {
 		}
 	}
 
-	results, err := s.Remove(repo, 0, []RemoveRequest{{Path: f.path["done"], SHA: sha}})
+	results, err := s.Remove(repo, 0, 0, []RemoveRequest{{Path: f.path["done"], SHA: sha}})
 	if err != nil || len(results) != 1 || !results[0].Removed {
 		t.Fatalf("remove: %+v %v", results, err)
 	}
@@ -56,11 +56,11 @@ func TestServiceWithoutPullRequestsRemovesNothing(t *testing.T) {
 	s := &Service{PRs: src.get, Now: func() time.Time { return f.now }}
 	repo := f.build(t, "live")
 
-	p, err := s.Preview(repo, 0)
+	p, err := s.Preview(repo, 0, 0)
 	if err != nil || len(p.Candidates) != 0 || len(p.Warnings) != 1 {
 		t.Fatalf("no PR data means nothing is provably merged: %+v %v", p, err)
 	}
-	results, err := s.Remove(repo, 0, []RemoveRequest{{Path: f.path["done"], SHA: "x"}})
+	results, err := s.Remove(repo, 0, 0, []RemoveRequest{{Path: f.path["done"], SHA: "x"}})
 	if err != nil || results[0].Removed || !strings.Contains(results[0].Error, "eligible") {
 		t.Fatalf("%+v %v", results, err)
 	}
