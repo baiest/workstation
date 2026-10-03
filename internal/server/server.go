@@ -23,12 +23,13 @@ import (
 type BuildFunc func() (workspace.Workspace, error)
 
 type Server struct {
-	build    BuildFunc
-	launcher Launcher
-	web      fs.FS
-	plans    PlanReader
-	branches BranchService
-	cleanup  CleanupService
+	build           BuildFunc
+	launcher        Launcher
+	web             fs.FS
+	plans           PlanReader
+	branches        BranchService
+	cleanup         CleanupService
+	worktreeCleanup WorktreeCleanupService
 
 	mu     sync.Mutex
 	last   *workspace.Workspace // snapshot actions are validated against
@@ -39,9 +40,10 @@ type Server struct {
 type Option func(*options)
 
 type options struct {
-	plans    PlanReader
-	branches BranchService
-	cleanup  CleanupService
+	plans           PlanReader
+	branches        BranchService
+	cleanup         CleanupService
+	worktreeCleanup WorktreeCleanupService
 }
 
 // PlanReader loads a session's plan by slug (implemented by claude.CLI).
@@ -101,8 +103,10 @@ func New(build BuildFunc, launcher Launcher, web fs.FS, opts ...Option) http.Han
 	for _, opt := range opts {
 		opt(&o)
 	}
-	s := &Server{build: build, launcher: launcher, web: web, plans: o.plans, branches: o.branches, cleanup: o.cleanup}
+	s := &Server{build: build, launcher: launcher, web: web, plans: o.plans, branches: o.branches, cleanup: o.cleanup, worktreeCleanup: o.worktreeCleanup}
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/worktree-cleanup", s.handleWorktreeCleanupPreview)
+	mux.HandleFunc("POST /api/worktree-cleanup", s.handleWorktreeCleanupRemove)
 	mux.HandleFunc("GET /api/cleanup", s.handleCleanupPreview)
 	mux.HandleFunc("POST /api/cleanup", s.handleCleanupDelete)
 	mux.HandleFunc("GET /api/workspace", s.handleWorkspace)

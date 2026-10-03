@@ -84,6 +84,41 @@ export interface DeleteResult {
   error?: string
 }
 
+export interface WtCandidate {
+  path: string
+  name: string
+  branch: string
+  sha: string
+  prNumber: number
+  prTitle: string
+  prUrl?: string
+  mergedAt: string
+}
+
+export interface WtSkipped {
+  path: string
+  name: string
+  branch: string
+  prNumber: number
+  reason: string
+}
+
+export interface WtPreview {
+  days: number
+  candidates: WtCandidate[]
+  skipped: WtSkipped[]
+  warnings: string[]
+}
+
+export interface WtResult {
+  path: string
+  name?: string
+  branch?: string
+  sha: string
+  removed: boolean
+  error?: string
+}
+
 export interface PlanData {
   slug: string
   path: string

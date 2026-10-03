@@ -16,6 +16,7 @@ import (
 	"workstation/internal/branches"
 	"workstation/internal/claude"
 	"workstation/internal/workspace"
+	"workstation/internal/wtclean"
 )
 
 type fakeLauncher struct {
@@ -635,6 +636,106 @@ func TestCleanupDeleteEndpoint(t *testing.T) {
 	}
 	if rec := do(h, http.MethodPost, "/api/cleanup", body, map[string]string{"Origin": "http://evil.example"}); rec.Code != 403 {
 		t.Errorf("foreign origin must be 403, got %d", rec.Code)
+	}
+}
+
+type fakeWT struct {
+	repo    string
+	days    int
+	req     []wtclean.RemoveRequest
+	removes int
+	err     error
+}
+
+func (f *fakeWT) Preview(repo workspace.Repo, days int) (wtclean.Response, error) {
+	f.repo, f.days = repo.Path, days
+	return wtclean.Response{
+		Preview:  wtclean.Preview{Days: 7, Candidates: []wtclean.Candidate{{Path: "/p/done", Name: "done", Branch: "done", SHA: "abc", PRNumber: 3}}},
+		Warnings: []string{},
+	}, f.err
+}
+
+func (f *fakeWT) Remove(repo workspace.Repo, days int, req []wtclean.RemoveRequest) ([]wtclean.RemoveResult, error) {
+	f.repo, f.days, f.req = repo.Path, days, req
+	f.removes++
+	var out []wtclean.RemoveResult
+	for _, r := range req {
+		out = append(out, wtclean.RemoveResult{Path: r.Path, SHA: r.SHA, Removed: true})
+	}
+	return out, f.err
+}
+
+// Removing folders must rest on a freshly built workspace, not the snapshot the
+// page loaded minutes ago.
+func TestWorktreeCleanupUsesAFreshWorkspace(t *testing.T) {
+	ws, _ := fixtureWorkspace(t)
+	builds := 0
+	fw := &fakeWT{}
+	h := New(func() (workspace.Workspace, error) { builds++; return ws, nil }, &fakeLauncher{}, fstest.MapFS{}, WithWorktreeCleanup(fw))
+
+	rec := do(h, http.MethodGet, "/api/worktree-cleanup?repo=/r&days=14", "", nil)
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"name":"done"`) {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+	if fw.repo != "/r" || fw.days != 14 || builds != 1 {
+		t.Fatalf("preview: repo=%q days=%d builds=%d", fw.repo, fw.days, builds)
+	}
+
+	body := `{"repo":"/r","days":14,"worktrees":[{"path":"/p/done","sha":"abc"}]}`
+	if rec := do(h, http.MethodPost, "/api/worktree-cleanup", body, nil); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"removed":true`) {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+	if builds != 2 || fw.removes != 1 || len(fw.req) != 1 || fw.req[0].Path != "/p/done" || fw.req[0].SHA != "abc" {
+		t.Fatalf("remove must rebuild the workspace first: builds=%d %+v", builds, fw)
+	}
+}
+
+func TestWorktreeCleanupValidation(t *testing.T) {
+	fw := &fakeWT{}
+	h, _ := newServerWith(t, WithWorktreeCleanup(fw))
+
+	for name, body := range map[string]string{
+		"unknown repo": `{"repo":"/etc","worktrees":[{"path":"/p","sha":"s"}]}`,
+		"bad json":     `{nope`,
+		"nothing sent": `{"repo":"/r","worktrees":[]}`,
+		"too many":     `{"repo":"/r","worktrees":[` + strings.TrimSuffix(strings.Repeat(`{"path":"/p","sha":"s"},`, 101), ",") + `]}`,
+		"empty path":   `{"repo":"/r","worktrees":[{"path":"","sha":"s"}]}`,
+		"missing sha":  `{"repo":"/r","worktrees":[{"path":"/p","sha":""}]}`,
+	} {
+		if rec := do(h, http.MethodPost, "/api/worktree-cleanup", body, nil); rec.Code != 400 {
+			t.Errorf("%s: want 400, got %d %s", name, rec.Code, rec.Body)
+		}
+	}
+	if fw.removes != 0 {
+		t.Fatal("a refused request must not reach the service")
+	}
+	good := `{"repo":"/r","worktrees":[{"path":"/p","sha":"s"}]}`
+	if rec := do(h, http.MethodPost, "/api/worktree-cleanup", good, map[string]string{"Content-Type": "text/plain"}); rec.Code != 415 {
+		t.Errorf("non-JSON must be 415, got %d", rec.Code)
+	}
+	if rec := do(h, http.MethodPost, "/api/worktree-cleanup", good, map[string]string{"Sec-Fetch-Site": "cross-site"}); rec.Code != 403 {
+		t.Errorf("cross-site must be 403, got %d", rec.Code)
+	}
+	if rec := do(h, http.MethodGet, "/api/worktree-cleanup?repo=/etc", "", nil); rec.Code != 400 {
+		t.Errorf("preview of an unknown repo must be 400, got %d", rec.Code)
+	}
+	if rec := do(h, http.MethodGet, "/api/worktree-cleanup?repo=/r&days=abc", "", nil); rec.Code != 400 {
+		t.Errorf("a non-numeric days must be 400, got %d", rec.Code)
+	}
+	none, _ := newServerWith(t)
+	if rec := do(none, http.MethodGet, "/api/worktree-cleanup?repo=/r", "", nil); rec.Code != 404 {
+		t.Errorf("no service configured must be 404, got %d", rec.Code)
+	}
+}
+
+func TestWorktreeCleanupErrors(t *testing.T) {
+	h, _ := newServerWith(t, WithWorktreeCleanup(&fakeWT{err: fmt.Errorf("x: %w", branches.ErrNoDefaultBranch)}))
+	if rec := do(h, http.MethodGet, "/api/worktree-cleanup?repo=/r", "", nil); rec.Code != 422 || !strings.Contains(rec.Body.String(), "default branch") {
+		t.Errorf("%d %q", rec.Code, rec.Body)
+	}
+	h2, _ := newServerWith(t, WithWorktreeCleanup(&fakeWT{err: errors.New(`C:\secret-repo: boom`)}))
+	if rec := do(h2, http.MethodGet, "/api/worktree-cleanup?repo=/r", "", nil); rec.Code != 500 || strings.Contains(rec.Body.String(), "secret-repo") {
+		t.Errorf("%d %q", rec.Code, rec.Body)
 	}
 }
 

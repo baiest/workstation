@@ -121,6 +121,13 @@ func onlyMergedWork(dir string, b gitx.Branch, pr *forge.PR, def string) bool {
 	return err == nil && ok
 }
 
+// BestPRs keeps one PR per source branch (an open one wins, else the newest).
+// Exported for the worktree cleanup, which uses the same rule.
+func BestPRs(prs []forge.PR) map[string]*forge.PR { return bestPRs(prs) }
+
+// SameCommit compares full or abbreviated (at least 7 characters) commit ids.
+func SameCommit(a, b string) bool { return sameCommit(a, b) }
+
 // sameCommit compares full or abbreviated (at least 7 characters) commit ids.
 func sameCommit(a, b string) bool {
 	a, b = strings.ToLower(a), strings.ToLower(b)

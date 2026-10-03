@@ -177,6 +177,31 @@ func DeleteBranch(dir, name, expectedSHA string) error {
 	return err
 }
 
+// HeadSHA returns the commit HEAD points at in the worktree at dir.
+func HeadSHA(dir string) (string, error) {
+	out, err := run(dir, "rev-parse", "--verify", "--quiet", "HEAD^{commit}")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
+// RemoveWorktree removes the linked worktree at path, but only if its HEAD is
+// still expectedSHA (what the user was shown). It never passes --force, so git
+// itself refuses a worktree with modified or untracked files, or a locked one,
+// and the main worktree. The branch is kept.
+func RemoveWorktree(repo, path, expectedSHA string) error {
+	head, err := HeadSHA(path)
+	if err != nil {
+		return err
+	}
+	if head != expectedSHA {
+		return fmt.Errorf("the worktree moved since it was listed (HEAD is now %s); not removing", head)
+	}
+	_, err = run(repo, "worktree", "remove", "--", path)
+	return err
+}
+
 // NoMerged returns the local branches that are not fully merged into base.
 func NoMerged(dir, base string) (map[string]bool, error) {
 	out, err := run(dir, "branch", "--no-merged", heads(base), "--format=%(refname:lstrip=2)")

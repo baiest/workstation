@@ -84,6 +84,12 @@ func (s *Service) GraphWithoutPRs(repo string, wts map[string]Worktree, includeM
 	return resp, nil
 }
 
+// PullRequests returns the pull requests of repo (cached for the TTL unless
+// refresh) and a warning if they could not be read. Other cleanups use it too.
+func (s *Service) PullRequests(repo string, refresh bool) ([]forge.PR, string) {
+	return s.pullRequests(repo, refresh)
+}
+
 // CleanupResponse is the cleanup preview plus non-fatal problems.
 type CleanupResponse struct {
 	CleanupPreview

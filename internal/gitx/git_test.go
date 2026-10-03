@@ -204,6 +204,87 @@ func TestDeleteBranch(t *testing.T) {
 	}
 }
 
+func TestHeadSHA(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	repo := t.TempDir()
+	mustGit(t, repo, "init", "-b", "main")
+	commitFile(t, repo, "a.txt", "1", "c1")
+	want, _ := BranchTip(repo, "main")
+
+	if got, err := HeadSHA(repo); err != nil || got != want {
+		t.Fatalf("HeadSHA = %q, %v; want %q", got, err, want)
+	}
+	if _, err := HeadSHA(filepath.Join(repo, "missing")); err == nil {
+		t.Error("a missing directory must be an error")
+	}
+}
+
+func TestRemoveWorktree(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	root := t.TempDir()
+	repo := filepath.Join(root, "repo")
+	if err := os.Mkdir(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustGit(t, repo, "init", "-b", "main")
+	commitFile(t, repo, "a.txt", "1", "c1")
+	addWT := func(name string) string {
+		p := filepath.Join(root, name)
+		mustGit(t, repo, "worktree", "add", "-b", name, p)
+		return p
+	}
+	clean, dirty, moved := addWT("clean"), addWT("dirty"), addWT("moved")
+	sha := func(p string) string {
+		s, err := HeadSHA(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+
+	// happy path
+	if err := RemoveWorktree(repo, clean, sha(clean)); err != nil {
+		t.Fatalf("remove clean worktree: %v", err)
+	}
+	if _, err := os.Stat(clean); !os.IsNotExist(err) {
+		t.Fatal("the folder must be gone")
+	}
+	if _, err := BranchTip(repo, "clean"); err != nil {
+		t.Fatal("removing a worktree must keep its branch")
+	}
+
+	// an untracked file: git refuses and nothing is deleted (we never pass --force)
+	if err := os.WriteFile(filepath.Join(dirty, "notes.txt"), []byte("precious"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := RemoveWorktree(repo, dirty, sha(dirty)); err == nil {
+		t.Fatal("a worktree with untracked files must not be removed")
+	}
+	if _, err := os.Stat(filepath.Join(dirty, "notes.txt")); err != nil {
+		t.Fatal("the user's file must still be there")
+	}
+
+	// HEAD moved since the preview
+	if err := RemoveWorktree(repo, moved, "0000000000000000000000000000000000000000"); err == nil {
+		t.Fatal("a worktree whose HEAD differs from the previewed commit must not be removed")
+	}
+	if _, err := os.Stat(moved); err != nil {
+		t.Fatal("the folder must still exist")
+	}
+
+	// never the main worktree
+	if err := RemoveWorktree(repo, repo, sha(repo)); err == nil {
+		t.Fatal("the main worktree must not be removable")
+	}
+	if _, err := os.Stat(filepath.Join(repo, ".git")); err != nil {
+		t.Fatal("the repository must be intact")
+	}
+}
+
 func TestDefaultBranchRejectsOddNames(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not installed")

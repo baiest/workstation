@@ -242,3 +242,5 @@ button.danger:hover:not(:disabled) { background: var(--danger); border-color: va
 .ticket .cell.branch .mono { color: var(--accent); }
 .ticket .cell.actions { gap: 0.35rem; flex-wrap: wrap; justify-content: flex-end; }
 .ticket .cell.actions button { font-size: 0.8rem; padding: 0.15rem 0.55rem; }
+
+.small-note { font-size: 0.82rem; }

@@ -1,4 +1,4 @@
-import type { BranchesResponse, CleanupPreview, DeleteResult, PlanData, WorkspaceData } from './types'
+import type { BranchesResponse, CleanupPreview, DeleteResult, PlanData, WorkspaceData, WtPreview, WtResult } from './types'
 
 export async function fetchWorkspace(): Promise<WorkspaceData> {
   const res = await fetch('/api/workspace', { cache: 'no-store' })
@@ -40,6 +40,25 @@ export async function runCleanup(
   })
   if (!res.ok) throw new Error((await res.text()).trim() || `${res.status}`)
   return (await res.json()).results as DeleteResult[]
+}
+
+/** Worktrees whose PR merged and that hold nothing else. Changes nothing. */
+export const fetchWorktreeCleanup = (repo: string, days: number) =>
+  getJSON<WtPreview>(`/api/worktree-cleanup?repo=${encodeURIComponent(repo)}&days=${days}`)
+
+/** Removes the chosen worktree folders; the server re-checks each one (never --force). */
+export async function runWorktreeCleanup(
+  repo: string,
+  days: number,
+  worktrees: { path: string; sha: string }[],
+): Promise<WtResult[]> {
+  const res = await fetch('/api/worktree-cleanup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ repo, days, worktrees }),
+  })
+  if (!res.ok) throw new Error((await res.text()).trim() || `${res.status}`)
+  return (await res.json()).results as WtResult[]
 }
 
 export type Action = 'terminal' | 'editor' | 'resume'

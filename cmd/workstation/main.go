@@ -14,6 +14,7 @@ import (
 	"workstation/internal/forge"
 	"workstation/internal/server"
 	"workstation/internal/workspace"
+	"workstation/internal/wtclean"
 	"workstation/web"
 )
 
@@ -54,6 +55,7 @@ func run(addr, cfgPath string) error {
 		server.WithPlans(cli),
 		server.WithBranches(branchSvc),
 		server.WithCleanup(branchSvc),
+		server.WithWorktreeCleanup(&wtclean.Service{PRs: branchSvc.PullRequests}),
 	)
 	log.Printf("workstation listening on http://%s", addr)
 	return server.NewHTTPServer(addr, handler).ListenAndServe()

@@ -18,8 +18,15 @@ ahead / behind), last commit, and the linked Claude session (status, last activi
 - **Branch graph** — the active branches of a repo as a tree: which depends on which, with PR status
   (open / draft / merged / declined), approvals, review state and checks. Zoom (buttons, **Ctrl + wheel**, *Fit*) and
   search (branch, worktree, PR title or `#number`; **Enter** jumps to the next match).
+- **Tickets tab** — everything of a ticket (`REG-5393`) in one place: its branches, worktree folders, PRs, git state
+  and Claude sessions, one row per branch. Answers "which worktree is for which branch and PR".
+- **Readable worktree cards** — titled by the PR title (else the branch) with a ticket badge, the folder as its own row,
+  ordered by what needs attention (live Claude, uncommitted changes, open PR) with merged ones last, and a
+  "merged · removable" hint. Branches with a commit in the last 3 days glow in the graph.
 - **Branch cleanup** — one button deletes local branches whose PR was merged long ago, after you review the list
   ([details](#branch-cleanup)).
+- **Worktree cleanup** — one button removes worktree folders whose PR merged and that hold nothing else
+  ([details](#worktree-cleanup)).
 - **Hide projects** you do not care about (**Hide** next to the project name; restore them from "Hidden projects").
   Remembered in the browser; hidden projects are not queried for PRs.
 - **UI size** with **A−** / **A+** in the header (also browser zoom).
@@ -221,6 +228,23 @@ Safety, enforced on the server and not just in the page:
 
 Limits: only the last 100 GitHub PRs are known, so older branches are not offered; Bitbucket Cloud's payload has no
 merge date, so its last-update time is used instead.
+
+### Worktree cleanup
+
+**Worktrees tab → "Clean up worktrees…"** previews the linked worktrees that can go, with a checkbox each; nothing
+changes until you confirm. A worktree is offered only when **all** of these hold:
+
+- its branch has a **merged** PR, merged at least **N days ago** (default 7, editable);
+- **nothing is uncommitted or untracked** in it, and **no Claude session is running** in it;
+- it has **no commits beyond what the PR merged** (HEAD is the PR's head commit, or already inside the default branch);
+- it is a linked worktree: never the main one, a detached one, or the default branch's.
+
+Removing **deletes the folder**; the branch is kept (delete it afterwards with "Clean up branches…"). It is enforced on the
+server, using a freshly built workspace and fresh PR data at the moment of removal:
+
+- each worktree must still be a candidate and still at the commit you were shown;
+- a fresh `git status` must be clean (a file created after the preview stops it);
+- git is never asked to `--force`, so it refuses locked worktrees and any with modified or untracked files.
 
 ### Pull requests
 

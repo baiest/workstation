@@ -6,10 +6,11 @@ import CleanupModal from './components/CleanupModal.vue'
 import PlanModal from './components/PlanModal.vue'
 import TicketList from './components/TicketList.vue'
 import WorktreeCard from './components/WorktreeCard.vue'
+import WorktreeCleanupModal from './components/WorktreeCleanupModal.vue'
 import { loadBranchData, newBranchState, type BranchState } from './branchLoader'
 import { matchesFilter, relativeTime, statusLabel } from './format'
 import { buildTickets, matchTicket } from './tickets'
-import { sortWorktrees } from './worktrees'
+import { mergedHint, sortWorktrees } from './worktrees'
 import { browserStorage, loadHidden, saveHidden, toggleHidden } from './hidden'
 import type { Pr, Repo, WorkspaceData } from './types'
 import { FONT_DEFAULT, clampFontSize, nextFontSize } from './zoom'
@@ -27,6 +28,7 @@ const query = ref('')
 const filterEl = ref<HTMLInputElement | null>(null)
 const planFor = ref<{ id: string; title: string } | null>(null)
 const cleanupFor = ref<Repo | null>(null)
+const wtCleanupFor = ref<Repo | null>(null)
 const tabs = reactive<Record<string, Tab>>(loadTabs())
 const branchState = reactive<Record<string, BranchState>>({})
 
@@ -159,6 +161,9 @@ function ticketsOf(repo: Repo) {
   return buildTickets(repo.worktrees, graph?.nodes ?? [], graph?.default ?? fallbackDefault).filter((t) => matchTicket(t, query.value))
 }
 
+/** How many worktrees of the repo look removable (merged PR, nothing pending): a hint for the button. */
+const removableCount = (repo: Repo) => repo.worktrees.filter((w) => mergedHint(w, prFor(repo, w.branch))).length
+
 const prFor = (repo: Repo, branch?: string): Pr | undefined =>
   branch ? branchState[repo.path]?.data?.graph.nodes.find((n) => n.branch === branch && !n.isDefault)?.pr : undefined
 
@@ -183,10 +188,10 @@ function onKey(e: KeyboardEvent) {
   if (e.key === '/' && !typing) {
     e.preventDefault()
     filterEl.value?.focus()
-  } else if (e.key === 'Escape' && !planFor.value && !cleanupFor.value) {
+  } else if (e.key === 'Escape' && !planFor.value && !cleanupFor.value && !wtCleanupFor.value) {
     query.value = ''
     filterEl.value?.blur()
-  } else if (e.key === 'r' && !typing && !planFor.value && !cleanupFor.value) {
+  } else if (e.key === 'r' && !typing && !planFor.value && !cleanupFor.value && !wtCleanupFor.value) {
     refresh()
   }
 }
@@ -237,6 +242,16 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
         <button class="link hide-btn" title="Hide this project (you can show it again below)" @click="toggleRepo(repo)">Hide</button>
       </h2>
 
+      <div v-if="tabOf(repo) === 'worktrees'" class="branch-actions">
+        <span class="muted small-note">Ordered by what needs attention · folders and branches differ? the title is the PR or branch.</span>
+        <button
+          data-wt-cleanup
+          title="Remove worktree folders whose PR was merged and that hold nothing else (you review the list first)"
+          @click="wtCleanupFor = repo"
+        >
+          Clean up worktrees…<span v-if="removableCount(repo)" class="count"> ({{ removableCount(repo) }} merged)</span>
+        </button>
+      </div>
       <div v-if="tabOf(repo) === 'worktrees'" class="grid">
         <WorktreeCard
           v-for="wt in repo.worktrees"
@@ -343,6 +358,13 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
   </main>
 
   <PlanModal v-if="planFor" :session-id="planFor.id" :title="planFor.title" @close="planFor = null" />
+  <WorktreeCleanupModal
+    v-if="wtCleanupFor"
+    :repo="wtCleanupFor.path"
+    :repo-name="wtCleanupFor.name"
+    @close="wtCleanupFor = null"
+    @removed="refresh()"
+  />
   <CleanupModal
     v-if="cleanupFor"
     :repo="cleanupFor.path"
