@@ -317,3 +317,6 @@ button.danger:hover:not(:disabled) { background: var(--danger); border-color: va
 .lane-title .link { font-size: 1rem; font-weight: 600; color: var(--text); }
 .lane-needs-you .lane-title .link { color: var(--unknown); }
 .lane-dormant { opacity: 0.8; }
+
+.tidy { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem; margin: 0 0 0.8rem; padding: 0.45rem 0.8rem; border: 1px dashed var(--border); border-radius: 0.5rem; font-size: 0.93rem; }
+.tidy-text { color: var(--muted); margin-right: auto; }

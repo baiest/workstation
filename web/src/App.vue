@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import { fetchBranches, fetchWorkspace, runAction, type Action } from './api'
+import { fetchBranches, fetchCleanup, fetchWorkspace, runAction, type Action } from './api'
 import BranchGraph from './components/BranchGraph.vue'
 import CleanupModal from './components/CleanupModal.vue'
 import PlanModal from './components/PlanModal.vue'
 import SessionsModal from './components/SessionsModal.vue'
 import StageBoard from './components/StageBoard.vue'
+import TidyBar from './components/TidyBar.vue'
 import TicketList from './components/TicketList.vue'
 import WorktreeCleanupModal from './components/WorktreeCleanupModal.vue'
 import ActiveSessions from './components/ActiveSessions.vue'
@@ -14,6 +15,7 @@ import { loadBranchData, newBranchState, type BranchState } from './branchLoader
 import { matchesFilter, relativeTime, statusLabel } from './format'
 import { resumeDecision, type ResumeWith } from './resume'
 import { buildTickets, matchTicket } from './tickets'
+import { branchTidy, tidyCounts, type BranchTidy } from './tidy'
 import { mergedHint, sortWorktrees, summarizeSessions } from './worktrees'
 import { browserStorage, loadHidden, saveHidden, toggleHidden } from './hidden'
 import type { Pr, Repo, WorkspaceData, Worktree } from './types'
@@ -192,7 +194,19 @@ async function refresh() {
   // pressing Refresh costs git, not API calls. "Refresh PRs" in the Branches tab forces one.
   // Hidden projects are skipped: no point spending API calls on what is not shown.
   for (const repo of data.value?.repos ?? []) {
-    if (!isHidden(repo)) loadBranches(repo, false)
+    if (!isHidden(repo)) loadBranches(repo, false)?.then(() => loadTidy(repo))
+  }
+}
+
+// How many branches could go, from the cleanup preview (read-only, served from the PR cache).
+const branchTidyOf = reactive<Record<string, BranchTidy>>({})
+async function loadTidy(repo: Repo) {
+  const st = branchState[repo.path]
+  if (!st?.data || st.data.prsPending) return // without PR data the count would be misleading
+  try {
+    branchTidyOf[repo.path] = branchTidy((await fetchCleanup(repo.path, 30)).candidates)
+  } catch {
+    delete branchTidyOf[repo.path] // the bar just shows less
   }
 }
 
@@ -314,6 +328,13 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
         <button class="link hide-btn" title="Hide this project (you can show it again below)" @click="toggleRepo(repo)">Hide</button>
       </h2>
 
+      <TidyBar
+        v-if="tabOf(repo) === 'worktrees'"
+        :counts="tidyCounts(repo.all, (b) => prFor(repo, b))"
+        :branches="branchTidyOf[repo.path]"
+        @worktrees="wtCleanupFor = repo"
+        @branches="cleanupFor = repo"
+      />
       <div v-if="tabOf(repo) === 'worktrees'" class="branch-actions">
         <span class="muted small-note">Ordered by what needs attention · folders and branches differ? the title is the PR or branch.</span>
         <button
