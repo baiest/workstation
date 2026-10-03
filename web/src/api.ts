@@ -45,19 +45,21 @@ export async function runCleanup(
 }
 
 /** Worktrees whose PR merged and that hold nothing else. Changes nothing. */
-export const fetchWorktreeCleanup = (repo: string, days: number) =>
-  getJSON<WtPreview>(`/api/worktree-cleanup?repo=${encodeURIComponent(repo)}&days=${days}`)
+/** dormantDays > 0 also offers worktrees idle that long with no PR in flight, when their work is safe elsewhere. */
+export const fetchWorktreeCleanup = (repo: string, days: number, dormantDays = 0) =>
+  getJSON<WtPreview>(`/api/worktree-cleanup?repo=${encodeURIComponent(repo)}&days=${days}&dormantDays=${dormantDays}`)
 
 /** Removes the chosen worktree folders; the server re-checks each one (never --force). */
 export async function runWorktreeCleanup(
   repo: string,
   days: number,
+  dormantDays: number,
   worktrees: { path: string; sha: string }[],
 ): Promise<WtResult[]> {
   const res = await fetch('/api/worktree-cleanup', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ repo, days, worktrees }),
+    body: JSON.stringify({ repo, days, dormantDays, worktrees }),
   })
   if (!res.ok) throw new Error((await res.text()).trim() || `${res.status}`)
   return (await res.json()).results as WtResult[]

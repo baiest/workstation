@@ -11,7 +11,7 @@ describe('TidyBar', () => {
   })
 
   it('renders nothing when all is tidy', () => {
-    expect(bar({ removable: 0, dormant: 0 }, { safe: 0, risky: 2 }).find('[data-tidy]').exists()).toBe(false)
+    expect(bar({ removable: 0, dormant: 0 }, { safe: 0, risky: 0 }).find('[data-tidy]').exists()).toBe(false)
   })
 
   it('offers the cleanups that apply and emits them', async () => {
@@ -26,7 +26,10 @@ describe('TidyBar', () => {
     expect(bar({ removable: 0, dormant: 5 }).find('[data-tidy-worktrees]').exists()).toBe(false)
   })
 
-  it('mentions the riskier branches without counting them as safe', () => {
-    expect(bar({ removable: 1, dormant: 0 }, { safe: 0, risky: 3 }).get('[data-tidy]').attributes('title')).toContain('3')
+  it('offers the branch cleanup when only old branches need a look', async () => {
+    const w = bar({ removable: 0, dormant: 0 }, { safe: 0, risky: 3 })
+    expect(w.get('[data-tidy]').text()).toContain('3 old branches to review')
+    await w.get('[data-tidy-branches]').trigger('click')
+    expect(w.emitted('branches')).toHaveLength(1)
   })
 })

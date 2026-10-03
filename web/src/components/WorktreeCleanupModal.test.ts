@@ -9,8 +9,8 @@ vi.mock('../api', () => ({ fetchWorktreeCleanup: vi.fn(), runWorktreeCleanup: vi
 const preview = (over: Partial<WtPreview> = {}): WtPreview => ({
   days: 7,
   candidates: [
-    { path: '/r/done-one', name: 'done-one', branch: 'REG-1-one', sha: 'aaa1111111111111', prNumber: 11, prTitle: 'Fix thing', mergedAt: '2026-08-01T00:00:00Z' },
-    { path: '/r/done-two', name: 'done-two', branch: 'REG-2-two', sha: 'bbb2222222222222', prNumber: 12, prTitle: 'Add other', mergedAt: '2026-07-01T00:00:00Z' },
+    { path: '/r/done-one', name: 'done-one', branch: 'REG-1-one', sha: 'aaa1111111111111', prNumber: 11, prTitle: 'Fix thing', mergedAt: '2026-08-01T00:00:00Z', kind: 'merged' },
+    { path: '/r/done-two', name: 'done-two', branch: 'REG-2-two', sha: 'bbb2222222222222', prNumber: 12, prTitle: 'Add other', mergedAt: '2026-07-01T00:00:00Z', kind: 'merged' },
   ],
   skipped: [{ path: '/r/dirty', name: 'dirty', branch: 'REG-3', prNumber: 13, reason: 'uncommitted changes or untracked files' }],
   warnings: [],
@@ -32,7 +32,7 @@ beforeEach(() => {
 describe('WorktreeCleanupModal', () => {
   it('lists each worktree folder with its branch and PR, all ticked', async () => {
     const w = await open()
-    expect(fetchWorktreeCleanup).toHaveBeenCalledWith('/r', 7)
+    expect(fetchWorktreeCleanup).toHaveBeenCalledWith('/r', 7, 0)
     expect(w.text()).toContain('done-one')
     expect(w.text()).toContain('REG-1-one')
     expect(w.text()).toContain('#11')
@@ -74,7 +74,7 @@ describe('WorktreeCleanupModal', () => {
     await w.get('input[data-path="/r/done-one"]').setValue(false)
     await w.get('[data-remove]').trigger('click')
     await flushPromises()
-    expect(runWorktreeCleanup).toHaveBeenCalledWith('/r', 7, [{ path: '/r/done-two', sha: 'bbb2222222222222' }])
+    expect(runWorktreeCleanup).toHaveBeenCalledWith('/r', 7, 0, [{ path: '/r/done-two', sha: 'bbb2222222222222' }])
     expect(w.emitted('removed')).toHaveLength(1)
   })
 
@@ -126,7 +126,7 @@ describe('WorktreeCleanupModal', () => {
     await w.get('input[data-days]').setValue('30')
     await w.get('input[data-days]').trigger('change')
     await flushPromises()
-    expect(fetchWorktreeCleanup).toHaveBeenLastCalledWith('/r', 30)
+    expect(fetchWorktreeCleanup).toHaveBeenLastCalledWith('/r', 30, 0)
   })
 
   it('shows a load error', async () => {
@@ -141,5 +141,45 @@ describe('WorktreeCleanupModal', () => {
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     await w.get('[data-close]').trigger('click')
     expect(w.emitted('close')).toHaveLength(2)
+  })
+  describe('idle worktrees', () => {
+    const idle = (over = {}) => ({
+      path: '/r/old-one', name: 'old-one', branch: 'LOY-5-old', sha: 'ccc3333333333333', prNumber: 0, prTitle: '', mergedAt: '',
+      kind: 'dormant-on-remote' as const, lastActivity: '2026-08-01T00:00:00Z', ...over,
+    })
+
+    it('are not asked for until the box is ticked, then the list reloads with the age', async () => {
+      const w = await open()
+      expect(fetchWorktreeCleanup).toHaveBeenLastCalledWith('/r', 7, 0)
+      vi.mocked(fetchWorktreeCleanup).mockResolvedValue(preview({ candidates: [...preview().candidates, idle()] }))
+      await w.get('input[data-include-idle]').setValue(true)
+      await flushPromises()
+      expect(fetchWorktreeCleanup).toHaveBeenLastCalledWith('/r', 7, 14)
+    })
+
+    it('start unticked, and say why they are safe', async () => {
+      const w = await open()
+      vi.mocked(fetchWorktreeCleanup).mockResolvedValue(
+        preview({ candidates: [...preview().candidates, idle(), idle({ path: '/r/old-two', name: 'old-two', kind: 'dormant-merged' })] }),
+      )
+      await w.get('input[data-include-idle]').setValue(true)
+      await flushPromises()
+      expect((w.get('input[data-path="/r/old-one"]').element as HTMLInputElement).checked).toBe(false)
+      expect((w.get('input[data-path="/r/done-one"]').element as HTMLInputElement).checked).toBe(true)
+      expect(w.get('[data-kind="dormant-on-remote"]').text()).toContain('pushed to a remote')
+      expect(w.get('[data-kind="dormant-merged"]').text()).toContain('already in the default branch')
+    })
+
+    it('sends the age when removing', async () => {
+      vi.mocked(runWorktreeCleanup).mockResolvedValue([{ path: '/r/old-one', sha: 'ccc3333333333333', removed: true }])
+      const w = await open()
+      vi.mocked(fetchWorktreeCleanup).mockResolvedValue(preview({ candidates: [idle()] }))
+      await w.get('input[data-include-idle]').setValue(true)
+      await flushPromises()
+      await w.get('input[data-path="/r/old-one"]').setValue(true)
+      await w.get('[data-remove]').trigger('click')
+      await flushPromises()
+      expect(runWorktreeCleanup).toHaveBeenCalledWith('/r', 7, 14, [{ path: '/r/old-one', sha: 'ccc3333333333333' }])
+    })
   })
 })

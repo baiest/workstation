@@ -42,5 +42,6 @@ export function tidyText(wt: TidyCounts, br?: BranchTidy): string {
   if (wt.removable) parts.push(`${plural(wt.removable, 'worktree', 'worktrees')} merged`)
   if (wt.dormant) parts.push(`${wt.dormant} dormant`)
   if (br?.safe) parts.push(`${plural(br.safe, 'branch', 'branches')} can be deleted`)
+  if (br?.risky) parts.push(`${plural(br.risky, 'old branch', 'old branches')} to review`)
   return parts.join(' · ')
 }

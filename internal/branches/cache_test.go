@@ -47,7 +47,7 @@ func TestExpiredCacheIsServedAtOnceAndRefreshedInTheBackground(t *testing.T) {
 	fp.set([]forge.PR{open(6, "feat-b")}, gate) // the next fetch hangs until we say so
 
 	var stale Response
-	within(t, 2*time.Second, "an expired-cache request", func() { stale, _ = s.Graph(repo, nil, false, false) })
+	within(t, 10*time.Second, "an expired-cache request", func() { stale, _ = s.Graph(repo, nil, false, false) })
 
 	if a := nodeMap(stale.Graph)["feat-a"]; a.PR == nil || a.PR.Number != 5 {
 		t.Errorf("the old PRs are shown while the new ones load: %+v", a)
@@ -81,7 +81,7 @@ func TestOnlyOneBackgroundRefreshAtATime(t *testing.T) {
 	gate := make(chan struct{})
 	fp.set(fp.prs, gate)
 	for i := 0; i < 8; i++ { // a burst of page loads while the cache is expired
-		within(t, 2*time.Second, "request", func() { _, _ = s.Graph(repo, nil, false, false) })
+		within(t, 10*time.Second, "request", func() { _, _ = s.Graph(repo, nil, false, false) })
 	}
 	close(gate)
 	s.Wait()

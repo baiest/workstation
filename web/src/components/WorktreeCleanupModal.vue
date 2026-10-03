@@ -8,6 +8,9 @@ const props = defineProps<{ repo: string; repoName: string }>()
 const emit = defineEmits<{ close: []; removed: [] }>()
 
 const days = ref(7)
+const includeIdle = ref(false)
+const idleDays = ref(14)
+const dormantDays = computed(() => (includeIdle.value ? idleDays.value : 0))
 const preview = ref<WtPreview | null>(null)
 const loadError = ref('')
 const loading = ref(false)
@@ -22,13 +25,18 @@ const count = computed(() => picked.value.size)
 const removeLabel = computed(() => `Remove ${count.value} worktree${count.value === 1 ? '' : 's'}`)
 const removedCount = computed(() => results.value?.filter((r) => r.removed).length ?? 0)
 const short = (sha: string) => sha.slice(0, 7)
+const kindText: Record<string, string> = {
+  'dormant-merged': 'idle · already in the default branch',
+  'dormant-on-remote': 'idle · pushed to a remote',
+}
 
 async function load() {
   loading.value = true
   loadError.value = ''
   try {
-    preview.value = await fetchWorktreeCleanup(props.repo, days.value)
-    picked.value = new Set(preview.value.candidates.map((c) => c.path)) // all ticked; the user unticks what to keep
+    preview.value = await fetchWorktreeCleanup(props.repo, days.value, dormantDays.value)
+    // merged ones start ticked (the user unticks what to keep); idle ones are the user's call, one by one
+    picked.value = new Set(preview.value.candidates.filter((c) => c.kind === 'merged').map((c) => c.path))
   } catch (e) {
     preview.value = null
     loadError.value = e instanceof Error ? e.message : String(e)
@@ -50,7 +58,7 @@ async function confirmRemove() {
   removeError.value = ''
   try {
     const chosen = candidates.value.filter((c) => picked.value.has(c.path)).map((c) => ({ path: c.path, sha: c.sha }))
-    results.value = await runWorktreeCleanup(props.repo, days.value, chosen)
+    results.value = await runWorktreeCleanup(props.repo, days.value, dormantDays.value, chosen)
     emit('removed')
   } catch (e) {
     removeError.value = e instanceof Error ? e.message : String(e)
@@ -107,6 +115,16 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
           merged. Removing a worktree <strong>deletes the folder</strong>; its branch is kept. The main worktree is never touched.
         </p>
 
+        <p class="muted">
+          <label>
+            <input v-model="includeIdle" data-include-idle type="checkbox" @change="load" />
+            Also worktrees idle for
+          </label>
+          <input v-model.number="idleDays" data-idle-days class="days" type="number" min="1" max="3650" @change="includeIdle && load()" />
+          days with no pull request in flight, only if their commits are already in the default branch or on a remote (as of your
+          last fetch). They start unticked.
+        </p>
+
         <p v-if="loading" class="muted">Looking for merged worktrees…</p>
         <p v-if="loadError" class="err">{{ loadError }}</p>
         <p v-for="w in preview?.warnings ?? []" :key="w" class="banner warn">{{ w }}</p>
@@ -125,18 +143,20 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
                   <input type="checkbox" :data-path="c.path" :checked="picked.has(c.path)" @change="toggle(c.path, ($event.target as HTMLInputElement).checked)" />
                   <span class="mono name clip" :title="c.path">{{ c.name }}</span>
                 </label>
-                <span class="clip"><span class="mono muted">{{ c.branch }}</span> · #{{ c.prNumber }} {{ c.prTitle }}</span>
-                <span class="muted">merged {{ relativeTime(c.mergedAt) }}</span>
+                <span v-if="c.kind === 'merged'" class="clip"><span class="mono muted">{{ c.branch }}</span> · #{{ c.prNumber }} {{ c.prTitle }}</span>
+                <span v-else class="clip"><span class="mono muted">{{ c.branch }}</span></span>
+                <span v-if="c.kind === 'merged'" class="muted">merged {{ relativeTime(c.mergedAt) }}</span>
+                <span v-else class="muted" :data-kind="c.kind">{{ kindText[c.kind] }} · {{ c.lastActivity ? relativeTime(c.lastActivity) : '' }}</span>
                 <span class="muted mono">{{ short(c.sha) }}</span>
               </li>
             </ul>
           </template>
 
           <details v-if="preview.skipped.length" class="skipped">
-            <summary>Kept ({{ preview.skipped.length }}): merged PR, but not eligible</summary>
+            <summary>Kept ({{ preview.skipped.length }}): not eligible</summary>
             <ul>
               <li v-for="s in preview.skipped" :key="s.path">
-                <span class="mono">{{ s.name }}</span> <span class="muted">#{{ s.prNumber }} · {{ s.reason }}</span>
+                <span class="mono">{{ s.name }}</span> <span class="muted"><template v-if="s.prNumber">#{{ s.prNumber }} · </template>{{ s.reason }}</span>
               </li>
             </ul>
           </details>

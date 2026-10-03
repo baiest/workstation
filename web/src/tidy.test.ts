@@ -33,6 +33,11 @@ describe('tidyText', () => {
     expect(tidyText({ removable: 3, dormant: 0 }, { safe: 18, risky: 0 })).toBe('3 worktrees merged · 18 branches can be deleted')
     expect(tidyText({ removable: 1, dormant: 12 }, undefined)).toBe('1 worktree merged · 12 dormant')
   })
+  it('mentions old branches that need a look, without calling them safe', () => {
+    expect(tidyText({ removable: 0, dormant: 0 }, { safe: 2, risky: 5 })).toBe('2 branches can be deleted · 5 old branches to review')
+    expect(tidyText({ removable: 0, dormant: 0 }, { safe: 0, risky: 1 })).toBe('1 old branch to review')
+  })
+
   it('is empty when everything is tidy', () => {
     expect(tidyText({ removable: 0, dormant: 0 }, { safe: 0, risky: 0 })).toBe('')
   })

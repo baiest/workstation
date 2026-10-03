@@ -118,6 +118,9 @@ export interface WtCandidate {
   prTitle: string
   prUrl?: string
   mergedAt: string
+  /** merged: its PR is done. The dormant kinds were idle with no PR in flight, and the work is safe elsewhere. */
+  kind: 'merged' | 'dormant-merged' | 'dormant-on-remote'
+  lastActivity?: string
 }
 
 export interface WtSkipped {

@@ -280,6 +280,17 @@ server, using a freshly built workspace and fresh PR data at the moment of remov
 - a fresh `git status` must be clean (a file created after the preview stops it);
 - git is never asked to `--force`, so it refuses locked worktrees and any with modified or untracked files.
 
+**Idle worktrees (opt-in).** Tick "Also worktrees idle for N days" (default 14) to list worktrees that never got a
+merged PR. They are offered only when they have **no open PR**, nothing uncommitted, no live Claude, and their last
+commit and last Claude session are older than N days, **and** the work cannot be lost: the branch is already inside the
+default branch, or some remote-tracking branch contains HEAD (as of your last `git fetch`). Anything that exists only on
+this machine is listed under "Kept" with that reason. Idle worktrees start **unticked**; the same server-side re-checks
+apply, and the branch is kept.
+
+The **Tidy up** bar also counts old branches to review. They go through "Clean up branches…", which already grades
+branches without a PR by risk (a merged one loses nothing; one pushed to a remote can be restored; one that exists only
+on this machine starts unticked and needs an extra confirmation).
+
 ### Pull requests
 
 The Branches tab loads in **two steps** so it never waits for the network: first the graph from Git alone
