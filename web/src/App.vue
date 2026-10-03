@@ -4,15 +4,17 @@ import { fetchBranches, fetchWorkspace, runAction, type Action } from './api'
 import BranchGraph from './components/BranchGraph.vue'
 import CleanupModal from './components/CleanupModal.vue'
 import PlanModal from './components/PlanModal.vue'
+import TicketList from './components/TicketList.vue'
 import WorktreeCard from './components/WorktreeCard.vue'
 import { loadBranchData, newBranchState, type BranchState } from './branchLoader'
 import { matchesFilter, relativeTime, statusLabel } from './format'
+import { buildTickets, matchTicket } from './tickets'
 import { sortWorktrees } from './worktrees'
 import { browserStorage, loadHidden, saveHidden, toggleHidden } from './hidden'
 import type { Pr, Repo, WorkspaceData } from './types'
 import { FONT_DEFAULT, clampFontSize, nextFontSize } from './zoom'
 
-type Tab = 'worktrees' | 'branches'
+type Tab = 'worktrees' | 'branches' | 'tickets'
 
 const TAB_KEY = 'workstation.tabs'
 const UNLINKED_LIMIT = 50
@@ -149,6 +151,14 @@ async function act(action: Action, body: { path?: string; sessionId?: string }) 
   }
 }
 
+// Everything of a repo grouped by ticket. PRs come from the branch graph, so the
+// groups gain their PR info as soon as the second loading step arrives.
+function ticketsOf(repo: Repo) {
+  const graph = branchState[repo.path]?.data?.graph
+  const fallbackDefault = repo.worktrees.some((w) => w.branch === 'master') ? 'master' : 'main'
+  return buildTickets(repo.worktrees, graph?.nodes ?? [], graph?.default ?? fallbackDefault).filter((t) => matchTicket(t, query.value))
+}
+
 const prFor = (repo: Repo, branch?: string): Pr | undefined =>
   branch ? branchState[repo.path]?.data?.graph.nodes.find((n) => n.branch === branch && !n.isDefault)?.pr : undefined
 
@@ -164,7 +174,7 @@ const repos = computed(() =>
         sortMode.value,
       ),
     }))
-    .filter((r) => r.worktrees.length > 0 || tabOf(r) === 'branches'),
+    .filter((r) => r.worktrees.length > 0 || tabOf(r) !== 'worktrees'),
 )
 
 function onKey(e: KeyboardEvent) {
@@ -216,6 +226,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
         <span class="muted mono path"><bdi>{{ repo.path }}</bdi></span>
         <span class="tabs">
           <button :class="{ active: tabOf(repo) === 'worktrees' }" @click="setTab(repo, 'worktrees')">Worktrees</button>
+          <button :class="{ active: tabOf(repo) === 'tickets' }" data-tab="tickets" @click="setTab(repo, 'tickets'); loadBranches(repo)">
+            Tickets
+          </button>
           <button :class="{ active: tabOf(repo) === 'branches' }" @click="setTab(repo, 'branches'); loadBranches(repo)">
             Branches
             <span v-if="branchState[repo.path]?.data" class="count">{{ branchState[repo.path].data!.graph.nodes.length }}</span>
@@ -235,6 +248,19 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
           @editor="(p) => act('editor', { path: p })"
           @resume="(id) => act('resume', { sessionId: id })"
           @plan="(id) => (planFor = { id, title: wt.name })"
+        />
+      </div>
+
+      <div v-else-if="tabOf(repo) === 'tickets'" class="tickets-tab">
+        <p v-if="branchState[repo.path]?.prsLoading" class="muted loading-line"><i class="spinner" /> Loading pull requests…</p>
+        <p v-if="branchState[repo.path]?.prsError" class="banner warn">Could not load pull requests: {{ branchState[repo.path].prsError }}</p>
+        <TicketList
+          :tickets="ticketsOf(repo)"
+          :editor="data!.capabilities.editor"
+          @terminal="(p) => act('terminal', { path: p })"
+          @editor="(p) => act('editor', { path: p })"
+          @resume="(id) => act('resume', { sessionId: id })"
+          @plan="(id) => (planFor = { id, title: repo.name })"
         />
       </div>
 
