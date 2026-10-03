@@ -10,6 +10,7 @@ const emit = defineEmits<{
   editor: [path: string]
   resume: [sessionId: string]
   plan: [sessionId: string]
+  sessions: [path: string]
 }>()
 
 const ago = (iso: string) => relativeTime(iso, props.now)
@@ -71,7 +72,12 @@ function summary(t: Ticket): string {
               <button v-if="editor" data-action="editor" @click="emit('editor', i.worktree!.path)">
                 {{ editor === 'cursor' ? 'Cursor' : 'VS Code' }}
               </button>
-              <button v-if="resumable(i)" data-action="resume" @click="emit('resume', resumable(i)!.id)">Resume</button>
+              <button v-if="resumable(i)" data-action="resume" @click="emit('resume', resumable(i)!.id)">
+                {{ i.sessions.length > 1 ? 'Resume latest' : 'Resume' }}
+              </button>
+              <button v-if="i.sessions.length > 1" data-action="sessions" @click="emit('sessions', i.worktree!.path)">
+                Sessions ({{ i.sessions.length }})
+              </button>
               <button v-if="planned(i)" data-action="plan" @click="emit('plan', planned(i)!.id)">Plan</button>
             </template>
           </div>

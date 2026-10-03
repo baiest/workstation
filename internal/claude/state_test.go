@@ -161,6 +161,59 @@ func TestCLISessionsCarryTheirState(t *testing.T) {
 	}
 }
 
+// A CLI session rarely has a title, so what identifies a chat is what you asked first.
+func TestTranscriptPromptIsTheFirstRealUserMessage(t *testing.T) {
+	long := strings.Repeat("palabra ", 60)
+	tests := []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{"a plain first message", userText("Fix the login redirect") + assistantEnd, "Fix the login redirect"},
+		{"only the first line, whitespace collapsed", userText(`Fix   the login\n   redirect please`) + assistantEnd, "Fix the login"},
+		{"skips injected context and slash-command noise",
+			rec("user", `,"isMeta":true,"message":{"role":"user","content":"caveat"}`) +
+				userText("<command-name>/clear</command-name>") +
+				userText("<local-command-stdout></local-command-stdout>") +
+				userText("Add a retry to the uploader"), "Add a retry to the uploader"},
+		{"skips tool results and interruptions",
+			userBlocks(`{"type":"tool_result","tool_use_id":"x","content":"ok"}`) +
+				userText("[Request interrupted by user]") + userText("Now the real question"), "Now the real question"},
+		{"reads text blocks too", userBlocks(`{"type":"text","text":"From a block"}`), "From a block"},
+		{"ignores subagent messages", rec("user", `,"isSidechain":true,"message":{"role":"user","content":"subagent task"}`) + userText("Mine"), "Mine"},
+		{"is cut to a readable length", userText(long), ""}, // checked below
+		{"none at all", assistantEnd, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := filepath.Join(t.TempDir(), "s.jsonl")
+			write(t, p, tt.content)
+			info, err := readTranscript(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tt.name == "is cut to a readable length" {
+				if r := []rune(info.Prompt); len(r) == 0 || len(r) > 120 || !strings.HasSuffix(info.Prompt, "…") {
+					t.Fatalf("prompt = %q (%d runes)", info.Prompt, len(r))
+				}
+				return
+			}
+			if info.Prompt != tt.want {
+				t.Fatalf("prompt = %q, want %q", info.Prompt, tt.want)
+			}
+		})
+	}
+}
+
+func TestCLISessionsExposeThePrompt(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "projects", "enc", "s1.jsonl"), userText("Investigate the flaky test")+assistantEnd+turnDone)
+	got, err := NewCLI(root, func(int) bool { return false }).Sessions()
+	if err != nil || len(got) != 1 || got[0].Prompt != "Investigate the flaky test" {
+		t.Fatalf("%+v %v", got, err)
+	}
+}
+
 func TestDesktopOnlySessionsHaveAnUnknownState(t *testing.T) {
 	root := t.TempDir()
 	write(t, filepath.Join(root, "claude-code-sessions", "a", "b", "local_x.json"), `{"sessionId":"local_x","cwd":"/w"}`)

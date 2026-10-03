@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { gitSummary, relativeTime, sessionHint, sessionLabel, stateTone } from '../format'
+import { gitSummary, relativeTime, sessionHint, sessionLabel, sessionTitle, stateTone } from '../format'
 import type { Pr, Worktree } from '../types'
 import { isFresh, mergedHint, ticketKey } from '../worktrees'
 import PrChip from './PrChip.vue'
@@ -14,9 +14,8 @@ const emit = defineEmits<{
   editor: [path: string]
   resume: [sessionId: string]
   plan: [sessionId: string]
+  sessions: [path: string] // open the full list of this worktree's sessions
 }>()
-
-const expanded = ref(false)
 
 const latest = computed(() => props.worktree.sessions[0])
 const state = computed(() => latest.value?.status ?? 'none')
@@ -88,30 +87,28 @@ const ago = (iso: string) => relativeTime(iso, props.now)
       <span v-if="!latest" class="muted">No Claude session</span>
       <span v-else :title="sessionHint(latest) || (latest.rawStatus ? `raw status: ${latest.rawStatus}` : '')">
         {{ sessionLabel(latest) }} · {{ ago(latest.lastActivity) }}
-        <button v-if="extra > 0" class="link" @click="expanded = !expanded">+{{ extra }} more</button>
+        <button v-if="extra > 0" class="link" @click="emit('sessions', worktree.path)">+{{ extra }} more</button>
       </span>
     </div>
-    <p v-if="latest?.title || latest?.lastMessage" class="message">
-      <strong v-if="latest.title">{{ latest.title }}</strong>
+    <p v-if="latest?.title || latest?.prompt || latest?.lastMessage" class="message">
+      <strong v-if="latest.title || latest.prompt">{{ latest.title || latest.prompt }}</strong>
       {{ latest.lastMessage }}
     </p>
-
-    <ul v-if="expanded" class="sessions">
-      <li v-for="s in worktree.sessions.slice(1)" :key="s.id">
-        <span class="mini" :class="`status-${s.status}`" :title="sessionHint(s)">{{ sessionLabel(s) }}</span>
-        <span class="clip">{{ s.title || s.lastMessage || s.id }}</span>
-        <span class="muted">{{ ago(s.lastActivity) }}</span>
-        <button v-if="s.hasPlan" class="link" data-action="plan-row" @click="emit('plan', s.id)">Plan</button>
-        <button v-if="s.resumable" class="link" data-action="resume-row" @click="emit('resume', s.id)">Resume</button>
-      </li>
-    </ul>
 
     <footer>
       <button data-action="terminal" @click="emit('terminal', worktree.path)">Terminal</button>
       <button v-if="editor" data-action="editor" @click="emit('editor', worktree.path)">
         {{ editor === 'cursor' ? 'Cursor' : 'VS Code' }}
       </button>
-      <button v-if="resumable" data-action="resume" @click="emit('resume', resumable.id)">Resume Claude</button>
+      <button
+        v-if="resumable"
+        data-action="resume"
+        :title="extra > 0 ? `Resumes the latest session (${sessionTitle(resumable)}). Use Sessions to pick another.` : ''"
+        @click="emit('resume', resumable.id)"
+      >
+        {{ extra > 0 ? 'Resume latest' : 'Resume Claude' }}
+      </button>
+      <button v-if="extra > 0" data-action="sessions" @click="emit('sessions', worktree.path)">Sessions ({{ worktree.sessions.length }})</button>
       <button v-if="planned" data-action="plan" @click="emit('plan', planned.id)">Plan</button>
     </footer>
   </article>

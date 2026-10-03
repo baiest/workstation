@@ -278,3 +278,21 @@ button.danger:hover:not(:disabled) { background: var(--danger); border-color: va
 @media (prefers-reduced-motion: reduce) { .card.tone-attention .dot { animation: none; } }
 
 .banner.info { border-color: var(--accent); color: var(--accent); }
+
+/* sessions picker */
+.sessions-modal .session-search { width: 100%; margin: 0.4rem 0 0.6rem; font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 0.4rem; padding: 0.4rem 0.7rem; }
+.sessions-modal .session-search:focus { outline: none; border-color: var(--accent); }
+.session-list { list-style: none; margin: 0; padding: 0; max-height: 65vh; overflow: auto; }
+.session { --state: var(--stopped); padding: 0.45rem 0.7rem; margin-bottom: 0.35rem; background: var(--panel); border: 1px solid var(--border); border-left: 0.2rem solid var(--state); border-radius: 0.45rem; }
+.session.tone-working { --state: var(--working); }
+.session.tone-attention { --state: var(--unknown); }
+.session.tone-danger { --state: var(--danger); }
+.session.tone-idle { --state: var(--idle); }
+.session .s-head { display: flex; align-items: center; gap: 0.6rem; min-width: 0; }
+.session .s-state { flex: none; min-width: 7.5rem; font-size: 0.85rem; color: var(--state); }
+.session.tone-attention .s-state, .session.tone-danger .s-state { font-weight: 600; }
+.session .s-title { flex: 1; min-width: 0; font-weight: 600; }
+.session .s-ago { flex: none; font-size: 0.82rem; }
+.session .s-actions { flex: none; display: flex; gap: 0.35rem; }
+.session .s-actions button { font-size: 0.8rem; padding: 0.15rem 0.6rem; }
+.session .s-last { margin: 0.15rem 0 0 8.1rem; font-size: 0.85rem; }

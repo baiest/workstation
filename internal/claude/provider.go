@@ -34,6 +34,7 @@ type Session struct {
 	DesktopID      string    `json:"desktopId,omitempty"`
 	Source         Source    `json:"source"`
 	Title          string    `json:"title,omitempty"`
+	Prompt         string    `json:"prompt,omitempty"`    // the first thing the user asked: tells chats apart when there is no title
 	Cwd            string    `json:"cwd"`                 // directory the session ran in (usually a worktree)
 	OriginCwd      string    `json:"originCwd,omitempty"` // Desktop only: the repo the worktree was created from
 	Branch         string    `json:"branch,omitempty"`

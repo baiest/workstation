@@ -50,6 +50,11 @@ const stateHints: Record<ClaudeState, string> = {
   unknown: 'The state cannot be determined (for example a Claude Desktop session).',
 }
 
+/** A name for a chat: its title, else what was asked first, else its last words, else a short id. */
+export function sessionTitle(s: Session): string {
+  return s.title || s.prompt || s.lastMessage || s.id.slice(0, 8)
+}
+
 /** What the session is doing, in words; falls back to the process status for data without a state. */
 export function sessionLabel(s: Session): string {
   return s.state ? stateLabels[s.state] : statusLabel(s.status)

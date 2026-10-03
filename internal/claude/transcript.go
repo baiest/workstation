@@ -18,6 +18,7 @@ const (
 )
 
 type transcriptInfo struct {
+	Prompt       string    // what the user asked first: how a chat without a title is told apart
 	Phase        Phase     // where the conversation ends (see state.go)
 	PhaseAt      time.Time // timestamp of the record that decided the phase
 	Cwd          string
@@ -57,7 +58,8 @@ func readTranscript(path string) (transcriptInfo, error) {
 	defer f.Close()
 
 	var info transcriptInfo
-	headCwd, headBranch, headSlug := readHead(f)
+	headCwd, headBranch, headSlug, headPrompt := readHead(f)
+	info.Prompt = headPrompt
 	tail, err := readTail(f)
 	if err != nil {
 		return info, err
@@ -110,9 +112,9 @@ func readTranscript(path string) (transcriptInfo, error) {
 	return info, nil
 }
 
-func readHead(f *os.File) (cwd, branch, slug string) {
+func readHead(f *os.File) (cwd, branch, slug, prompt string) {
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		return "", "", ""
+		return "", "", "", ""
 	}
 	r := bufio.NewReaderSize(f, 64<<10)
 	for i := 0; i < headLines; i++ {
@@ -122,15 +124,43 @@ func readHead(f *os.File) (cwd, branch, slug string) {
 			cwd = firstNonEmpty(cwd, rec.Cwd)
 			branch = firstNonEmpty(branch, rec.GitBranch)
 			slug = firstNonEmpty(slug, rec.Slug)
-			if cwd != "" && branch != "" && slug != "" {
-				return cwd, branch, slug
+			prompt = firstNonEmpty(prompt, promptOf(rec))
+			if cwd != "" && branch != "" && slug != "" && prompt != "" {
+				return cwd, branch, slug, prompt
 			}
 		}
 		if err != nil {
 			break
 		}
 	}
-	return cwd, branch, slug
+	return cwd, branch, slug, prompt
+}
+
+const maxPrompt = 120
+
+// promptOf returns the first line of a real user message, or "" for anything
+// else: tool results, injected context, slash-command noise, interruptions and
+// subagent messages.
+func promptOf(r record) string {
+	if r.Type != "user" || r.IsMeta || r.IsSidechain || r.Message == nil {
+		return ""
+	}
+	for _, b := range blocksOf(r.Message.Content) {
+		if b.Type != "text" {
+			continue
+		}
+		text := strings.TrimSpace(b.Text)
+		if text == "" || strings.HasPrefix(text, "<") || strings.HasPrefix(text, "[Request interrupted") || strings.HasPrefix(text, "Caveat:") {
+			continue
+		}
+		first, _, _ := strings.Cut(text, "\n")
+		first = strings.Join(strings.Fields(first), " ")
+		if runes := []rune(first); len(runes) > maxPrompt {
+			first = string(runes[:maxPrompt-1]) + "…"
+		}
+		return first
+	}
+	return ""
 }
 
 // readBoundedLine reads one line, but never holds more than max bytes: a longer

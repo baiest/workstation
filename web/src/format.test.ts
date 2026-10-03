@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  gitSummary, isStale, matchesFilter, matchNode, prLabel, prTone, relativeTime, safeHref, sessionHint, sessionLabel, stateTone, statusLabel,
+  gitSummary, isStale, matchesFilter, matchNode, prLabel, prTone, relativeTime, safeHref, sessionHint, sessionLabel, sessionTitle, stateTone, statusLabel,
 } from './format'
 import type { BranchNode, GitInfo, Pr, Session, Worktree } from './types'
 
@@ -108,6 +108,19 @@ describe('safeHref', () => {
     undefined,
   ])('drops %s', (u) => {
     expect(safeHref(u)).toBeUndefined()
+  })
+})
+
+describe('sessionTitle', () => {
+  const s = (over: Partial<Session> = {}): Session => ({
+    id: '5577f1d1-7618-4bf9-b4b3-6e32c60d5b39', source: 'cli', cwd: '/w', status: 'idle', lastActivity: '2026-10-02T11:00:00Z', resumable: true, hasPlan: false, ...over,
+  })
+
+  it('prefers the title, then what was asked first, then the last message, then the id', () => {
+    expect(sessionTitle(s({ title: 'Add checks', prompt: 'Fix login', lastMessage: 'Done.' }))).toBe('Add checks')
+    expect(sessionTitle(s({ prompt: 'Fix login', lastMessage: 'Done.' }))).toBe('Fix login')
+    expect(sessionTitle(s({ lastMessage: 'Done.' }))).toBe('Done.')
+    expect(sessionTitle(s())).toBe('5577f1d1')
   })
 })
 

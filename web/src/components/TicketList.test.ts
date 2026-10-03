@@ -92,6 +92,19 @@ describe('TicketList', () => {
     expect(w.emitted('plan')![0]).toEqual(['s1'])
   })
 
+  it('offers the session list when a worktree has several', async () => {
+    const many = buildTickets(
+      [wt('REG-7-x', 'REG-7-x', { sessions: [session({ id: 'a' }), session({ id: 'b' }), session({ id: 'c' })] })],
+      [],
+      'main',
+    )
+    const w = render(many)
+    expect(w.get('[data-action=sessions]').text()).toBe('Sessions (3)')
+    await w.get('[data-action=sessions]').trigger('click')
+    expect(w.emitted('sessions')![0]).toEqual(['/repo/REG-7-x'])
+    expect(render().find('[data-action=sessions]').exists()).toBe(false) // one session each: no list
+  })
+
   it('hides the editor button when none is installed and resume/plan without a session', () => {
     const w = render(tickets(), '')
     expect(w.find('[data-action=editor]').exists()).toBe(false)

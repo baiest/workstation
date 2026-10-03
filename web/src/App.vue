@@ -4,6 +4,7 @@ import { fetchBranches, fetchWorkspace, runAction, type Action } from './api'
 import BranchGraph from './components/BranchGraph.vue'
 import CleanupModal from './components/CleanupModal.vue'
 import PlanModal from './components/PlanModal.vue'
+import SessionsModal from './components/SessionsModal.vue'
 import TicketList from './components/TicketList.vue'
 import WorktreeCard from './components/WorktreeCard.vue'
 import WorktreeCleanupModal from './components/WorktreeCleanupModal.vue'
@@ -13,7 +14,7 @@ import { resumeDecision, type ResumeWith } from './resume'
 import { buildTickets, matchTicket } from './tickets'
 import { mergedHint, sortWorktrees, summarizeSessions } from './worktrees'
 import { browserStorage, loadHidden, saveHidden, toggleHidden } from './hidden'
-import type { Pr, Repo, WorkspaceData } from './types'
+import type { Pr, Repo, WorkspaceData, Worktree } from './types'
 import { FONT_DEFAULT, clampFontSize, nextFontSize } from './zoom'
 
 type Tab = 'worktrees' | 'branches' | 'tickets'
@@ -30,6 +31,11 @@ const filterEl = ref<HTMLInputElement | null>(null)
 const planFor = ref<{ id: string; title: string } | null>(null)
 const cleanupFor = ref<Repo | null>(null)
 const wtCleanupFor = ref<Repo | null>(null)
+const sessionsFor = ref<Worktree | null>(null) // the worktree whose full session list is open
+
+function openSessions(repo: Repo, path: string) {
+  sessionsFor.value = repo.worktrees.find((w) => w.path === path) ?? null
+}
 const tabs = reactive<Record<string, Tab>>(loadTabs())
 const branchState = reactive<Record<string, BranchState>>({})
 
@@ -324,6 +330,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
           @editor="(p) => act('editor', { path: p })"
           @resume="(id) => resumeSession(id)"
           @plan="(id) => (planFor = { id, title: wt.name })"
+          @sessions="(p) => openSessions(repo, p)"
         />
       </div>
 
@@ -337,6 +344,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
           @editor="(p) => act('editor', { path: p })"
           @resume="(id) => resumeSession(id)"
           @plan="(id) => (planFor = { id, title: repo.name })"
+          @sessions="(p) => openSessions(repo, p)"
         />
       </div>
 
@@ -434,6 +442,14 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
     </details>
   </main>
 
+  <SessionsModal
+    v-if="sessionsFor"
+    :sessions="sessionsFor.sessions"
+    :title="sessionsFor.branch || sessionsFor.name"
+    @close="sessionsFor = null"
+    @resume="(id) => resumeSession(id)"
+    @plan="(id) => (planFor = { id, title: sessionsFor?.branch || sessionsFor?.name || '' })"
+  />
   <PlanModal v-if="planFor" :session-id="planFor.id" :title="planFor.title" @close="planFor = null" />
   <WorktreeCleanupModal
     v-if="wtCleanupFor"

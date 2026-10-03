@@ -58,7 +58,7 @@ func (c *CLI) Sessions() ([]Session, error) {
 				continue // unreadable or no cwd: cannot be placed anywhere
 			}
 			s := Session{
-				ID: id, Source: SourceCLI, Cwd: info.Cwd, Branch: info.Branch,
+				ID: id, Source: SourceCLI, Cwd: info.Cwd, Branch: info.Branch, Prompt: info.Prompt,
 				LastActivity: info.LastActivity, LastMessage: info.LastMessage,
 			}
 			if validSlug(info.Slug) {

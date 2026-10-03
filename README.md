@@ -325,6 +325,12 @@ records are ignored). Cards, ticket rows and a header summary ("2 waiting for yo
 The approval case is the only heuristic: there is no signal that separates "waiting for your approval" from "running a
 slow tool". It is labelled with a question mark and a tooltip, and uses a 30 s threshold.
 
+**Many chats in one worktree.** The card's main button is **Resume latest** (the most recent session). **Sessions (N)**
+opens the full list of that worktree: every chat with its state, name, last words, CLI/Desktop tag and age, a search box,
+and Resume / Plan per chat. A CLI chat rarely has a title, so it is named by the **first thing you asked** (the first
+real user message of its transcript, one line, 120 characters; slash-command noise, injected context, tool results and
+subagent messages are skipped), else by its last words.
+
 ## Dependencies on Claude internals (and limitations)
 
 - Everything under "Claude Code sessions" above is an undocumented, internal format and may change between

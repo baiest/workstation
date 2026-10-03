@@ -159,6 +159,29 @@ describe('WorktreeCard', () => {
     expect(old.classes()).not.toContain('fresh')
   })
 
+  describe('many sessions in one worktree', () => {
+    const three = worktree({ sessions: [session({ id: 'new' }), session({ id: 'mid' }), session({ id: 'old' })] })
+
+    it('opens the full list instead of hiding it behind a few lines', async () => {
+      const w = render(three)
+      expect(w.get('[data-action=sessions]').text()).toBe('Sessions (3)')
+      await w.get('[data-action=sessions]').trigger('click')
+      expect(w.emitted('sessions')![0]).toEqual(['C:\\r\\REG-5413'])
+    })
+
+    it('says that the main button resumes only the latest one', () => {
+      const w = render(three)
+      expect(w.get('[data-action=resume]').text()).toBe('Resume latest')
+      expect(w.get('[data-action=resume]').attributes('title')).toContain('latest')
+    })
+
+    it('keeps the plain label and no list for a single session', () => {
+      const w = render(worktree())
+      expect(w.get('[data-action=resume]').text()).toBe('Resume Claude')
+      expect(w.find('[data-action=sessions]').exists()).toBe(false)
+    })
+  })
+
   describe('what Claude is doing', () => {
     const withState = (state: Session['state'], heuristic = false) =>
       render(worktree({ sessions: [session({ state, stateHeuristic: heuristic })] }))

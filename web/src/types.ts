@@ -19,6 +19,7 @@ export interface Session {
   desktopId?: string
   source: 'cli' | 'desktop'
   title?: string
+  prompt?: string
   cwd: string
   originCwd?: string
   branch?: string
