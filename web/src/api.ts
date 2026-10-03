@@ -32,11 +32,12 @@ export async function runCleanup(
   repo: string,
   days: number,
   branches: { branch: string; sha: string }[],
+  allowLocalOnly = false,
 ): Promise<DeleteResult[]> {
   const res = await fetch('/api/cleanup', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ repo, days, branches }),
+    body: JSON.stringify({ repo, days, branches, allowLocalOnly }),
   })
   if (!res.ok) throw new Error((await res.text()).trim() || `${res.status}`)
   return (await res.json()).results as DeleteResult[]

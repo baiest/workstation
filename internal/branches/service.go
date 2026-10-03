@@ -101,7 +101,7 @@ type CleanupResponse struct {
 // is offered, because nothing proves a branch is merged.
 func (s *Service) CleanupPreview(repo string, wts map[string]Worktree, days int, refresh bool) (CleanupResponse, error) {
 	prs, warning := s.pullRequests(repo, refresh)
-	p, err := CleanupCandidates(repo, CleanupInput{Worktrees: wts, PRs: prs, Days: days, Now: s.Now()})
+	p, err := CleanupCandidates(repo, CleanupInput{Worktrees: wts, PRs: prs, PRsKnown: warning == "", Days: days, Now: s.Now()})
 	if err != nil {
 		return CleanupResponse{}, err
 	}
@@ -114,9 +114,10 @@ func (s *Service) CleanupPreview(repo string, wts map[string]Worktree, days int,
 
 // CleanupDelete deletes the chosen branches. It always re-fetches the pull
 // requests: a destructive action must not rest on a minute-old cache.
-func (s *Service) CleanupDelete(repo string, wts map[string]Worktree, days int, req []DeleteRequest) ([]DeleteResult, error) {
-	prs, _ := s.pullRequests(repo, true)
-	return DeleteBranches(repo, CleanupInput{Worktrees: wts, PRs: prs, Days: days, Now: s.Now()}, req)
+func (s *Service) CleanupDelete(repo string, wts map[string]Worktree, days int, allowLocalOnly bool, req []DeleteRequest) ([]DeleteResult, error) {
+	prs, warning := s.pullRequests(repo, true)
+	in := CleanupInput{Worktrees: wts, PRs: prs, PRsKnown: warning == "", AllowLocalOnly: allowLocalOnly, Days: days, Now: s.Now()}
+	return DeleteBranches(repo, in, req)
 }
 
 // pullRequests returns PRs for repo (possibly cached) and a warning if the

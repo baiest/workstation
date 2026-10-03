@@ -177,6 +177,23 @@ func DeleteBranch(dir, name, expectedSHA string) error {
 	return err
 }
 
+// RemoteContains reports whether any remote-tracking branch (as of the last
+// fetch) contains the commit, i.e. whether the work is backed up on a remote.
+func RemoteContains(dir, sha string) (bool, error) {
+	if sha == "" || strings.HasPrefix(sha, "-") {
+		return false, fmt.Errorf("invalid commit %q", sha)
+	}
+	out, err := run(dir, "for-each-ref", "--count=1", "--contains", sha, "--format=%(refname)", "refs/remotes")
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) { // e.g. an unknown commit: not contained anywhere
+			return false, nil
+		}
+		return false, err
+	}
+	return strings.TrimSpace(out) != "", nil
+}
+
 // HeadSHA returns the commit HEAD points at in the worktree at dir.
 func HeadSHA(dir string) (string, error) {
 	out, err := run(dir, "rev-parse", "--verify", "--quiet", "HEAD^{commit}")

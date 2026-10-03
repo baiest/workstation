@@ -168,7 +168,7 @@ func TestServiceCleanupPreviewUsesCacheButDeleteIsFresh(t *testing.T) {
 			sha = c.SHA
 		}
 	}
-	results, err := s.CleanupDelete(f.repo, f.in.Worktrees, 0, []DeleteRequest{{Branch: "old-squash", SHA: sha}})
+	results, err := s.CleanupDelete(f.repo, f.in.Worktrees, 0, false, []DeleteRequest{{Branch: "old-squash", SHA: sha}})
 	if err != nil || len(results) != 1 || !results[0].Deleted {
 		t.Fatalf("delete: %+v %v", results, err)
 	}
@@ -189,9 +189,58 @@ func TestServiceCleanupWithoutPullRequestsDeletesNothing(t *testing.T) {
 	if err != nil || len(p.Candidates) != 0 || len(p.Warnings) != 1 {
 		t.Fatalf("preview must be empty with a warning: %+v %v", p, err)
 	}
-	results, err := s.CleanupDelete(f.repo, f.in.Worktrees, 0, []DeleteRequest{{Branch: "old-squash", SHA: "x"}})
+	results, err := s.CleanupDelete(f.repo, f.in.Worktrees, 0, false, []DeleteRequest{{Branch: "old-squash", SHA: "x"}})
 	if err != nil || results[0].Deleted {
 		t.Fatalf("nothing may be deleted without PR data: %+v %v", results, err)
+	}
+}
+
+// Old branches without a PR are only offered when we know the PR list is real; a
+// failed lookup would make every branch look PR-less.
+func TestServiceStaleBranchesNeedTrustworthyPRData(t *testing.T) {
+	t.Parallel()
+	f := newStaleFixture(t)
+	now := f.now
+
+	s := newService(&fakeProvider{prs: f.prs}, nil, &now)
+	p, err := s.CleanupPreview(f.repo, f.in.Worktrees, 0, false)
+	if err != nil || kinds(p.CleanupPreview)["stale-local"] != KindStaleLocalOnly {
+		t.Fatalf("with PR data, stale branches are offered: %v %v", kinds(p.CleanupPreview), err)
+	}
+
+	broken := newService(&fakeProvider{err: errors.New("gh: not logged in")}, nil, &now)
+	p, err = broken.CleanupPreview(f.repo, f.in.Worktrees, 0, false)
+	if err != nil || len(p.Candidates) != 0 || len(p.Warnings) != 1 {
+		t.Fatalf("without PR data nothing is offered: %+v %v", p, err)
+	}
+
+	// a repo with no forge at all (no origin) has no PRs by design: still fine
+	local := newService(nil, forge.ErrNoProvider, &now)
+	p, err = local.CleanupPreview(f.repo, f.in.Worktrees, 0, false)
+	if err != nil || kinds(p.CleanupPreview)["stale-local"] != KindStaleLocalOnly || len(p.Warnings) != 0 {
+		t.Fatalf("a repo without a forge keeps working: %v %+v %v", kinds(p.CleanupPreview), p.Warnings, err)
+	}
+}
+
+func TestServiceDeleteHonoursTheLocalOnlyConfirmation(t *testing.T) {
+	t.Parallel()
+	f := newStaleFixture(t)
+	now := f.now
+	s := newService(&fakeProvider{prs: f.prs}, nil, &now)
+	p, _ := s.CleanupPreview(f.repo, f.in.Worktrees, 0, false)
+	var sha string
+	for _, c := range p.Candidates {
+		if c.Branch == "stale-local" {
+			sha = c.SHA
+		}
+	}
+	req := []DeleteRequest{{Branch: "stale-local", SHA: sha}}
+
+	if r, _ := s.CleanupDelete(f.repo, f.in.Worktrees, 0, false, req); r[0].Deleted {
+		t.Fatalf("not without the confirmation: %+v", r)
+	}
+	if r, _ := s.CleanupDelete(f.repo, f.in.Worktrees, 0, true, req); !r[0].Deleted {
+		t.Fatalf("with the confirmation: %+v", r)
 	}
 }
 

@@ -525,13 +525,14 @@ func TestBranchesEndpoint(t *testing.T) {
 }
 
 type fakeCleanup struct {
-	repo    string
-	wts     map[string]branches.Worktree
-	days    int
-	refresh bool
-	req     []branches.DeleteRequest
-	deletes int
-	err     error
+	repo           string
+	wts            map[string]branches.Worktree
+	days           int
+	refresh        bool
+	req            []branches.DeleteRequest
+	allowLocalOnly bool
+	deletes        int
+	err            error
 }
 
 func (f *fakeCleanup) CleanupPreview(repo string, wts map[string]branches.Worktree, days int, refresh bool) (branches.CleanupResponse, error) {
@@ -542,8 +543,8 @@ func (f *fakeCleanup) CleanupPreview(repo string, wts map[string]branches.Worktr
 	}, f.err
 }
 
-func (f *fakeCleanup) CleanupDelete(repo string, wts map[string]branches.Worktree, days int, req []branches.DeleteRequest) ([]branches.DeleteResult, error) {
-	f.repo, f.wts, f.days, f.req = repo, wts, days, req
+func (f *fakeCleanup) CleanupDelete(repo string, wts map[string]branches.Worktree, days int, allowLocalOnly bool, req []branches.DeleteRequest) ([]branches.DeleteResult, error) {
+	f.repo, f.wts, f.days, f.req, f.allowLocalOnly = repo, wts, days, req, allowLocalOnly
 	f.deletes++
 	var out []branches.DeleteResult
 	for _, r := range req {
@@ -607,6 +608,15 @@ func TestCleanupDeleteEndpoint(t *testing.T) {
 	}
 	if fc.repo != "/r" || fc.days != 30 || len(fc.req) != 2 || fc.req[0].SHA != "abc" {
 		t.Errorf("service args: %+v", fc)
+	}
+
+	// the explicit yes for branches that exist only here travels with the request, and defaults to no
+	if fc.allowLocalOnly {
+		t.Error("allowLocalOnly must default to false")
+	}
+	yes := `{"repo":"/r","days":30,"allowLocalOnly":true,"branches":[{"branch":"old","sha":"abc"}]}`
+	if rec := do(h, http.MethodPost, "/api/cleanup", yes, nil); rec.Code != 200 || !fc.allowLocalOnly {
+		t.Errorf("allowLocalOnly must be passed through: %d %+v", rec.Code, fc)
 	}
 
 	// refused before reaching the service

@@ -206,16 +206,20 @@ no longer has that parent as an ancestor, so it falls back to the default branch
 
 ### Branch cleanup
 
-**Branches tab → "Clean up branches…"** opens a preview; nothing is deleted until you confirm. A local branch is
-offered only when **all** of these hold:
+**Branches tab → "Clean up branches…"** opens a preview; nothing is deleted until you confirm. Only **local**
+branches are ever listed, never the default branch, a branch with a worktree, or one with an open PR. The age is
+editable (default 30 days) and branches come in four groups, from safest to riskiest:
 
-- its pull request is **merged** (from GitHub / Bitbucket; with no PR data nothing is offered),
-- it was merged at least **N days ago** (default 30, editable),
-- the branch **has no commits beyond what the PR merged**: its tip is the PR's head commit, or it is already
-  contained in the default branch,
-- it is not the default branch, has no worktree checked out, and has no newer open PR with the same name.
+| Group | When | Pre-ticked |
+|---|---|---|
+| **Pull request merged** | its PR is merged at least N days ago and the branch has **no commits beyond what the PR merged** (its tip is the PR's head commit, or it is already inside the default branch) | yes |
+| **No PR · already merged** | no PR, last commit older than N days, and already contained in the default branch: nothing is lost | yes |
+| **No PR · a remote has the commits** | no PR, old, not merged, but a remote-tracking branch contains the commits (as of your last fetch) | no |
+| **No PR · only on this machine** | no PR (or a PR closed without merging), old, and the commits exist **nowhere else** | no, and **needs an explicit "I understand"** checkbox |
 
-Everything else with a merged PR is listed under "Kept" with the reason. You untick what you want to keep and confirm.
+Old branches without a PR are offered only when the PR list could be read (a failed lookup would make every branch
+look PR-less). "Select all" never ticks the "only on this machine" group. Branches with a merged PR that were kept are
+listed under "Kept" with the reason. You untick what you want to keep and confirm.
 
 Safety, enforced on the server and not just in the page:
 
@@ -223,6 +227,8 @@ Safety, enforced on the server and not just in the page:
   deleted only if it **still points at the commit you were shown** (otherwise "the preview is out of date");
 - only **local** branches are deleted (`git branch -D`, which git itself refuses for a checked-out branch).
   Remote branches are never touched;
+- a branch whose commits exist only on this machine is deleted only if the request carries the explicit confirmation;
+  without it the server refuses, whatever the page sends;
 - afterwards it prints `git branch <name> <sha>` for each deleted branch; the commits stay in git until garbage
   collected, so that restores it.
 

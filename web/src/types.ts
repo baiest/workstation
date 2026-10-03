@@ -55,13 +55,19 @@ export interface BranchesResponse {
   prsPending?: boolean
 }
 
+/** From safest to riskiest. A missing kind means a branch whose PR was merged. */
+export type CleanupKind = 'pr-merged' | 'stale-merged' | 'stale-on-remote' | 'stale-local-only'
+
 export interface CleanupCandidate {
   branch: string
   sha: string
-  prNumber: number
-  prTitle: string
+  kind?: CleanupKind
+  prNumber?: number
+  prTitle?: string
   prUrl?: string
-  mergedAt: string
+  mergedAt?: string
+  lastCommit?: string
+  ahead?: number // commits that exist only on this branch (not in the default branch)
 }
 
 export interface CleanupSkipped {

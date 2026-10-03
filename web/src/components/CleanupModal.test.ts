@@ -44,6 +44,85 @@ describe('CleanupModal', () => {
     expect(w.get('[data-delete]').text()).toContain('Delete 2 local branches')
   })
 
+  describe('old branches without a PR', () => {
+    const mixed = () =>
+      preview({
+        candidates: [
+          { branch: 'pr-one', sha: 'aaa1111111111111', kind: 'pr-merged', prNumber: 11, prTitle: 'Fix thing', mergedAt: '2026-08-01T00:00:00Z' },
+          { branch: 'merged-in-main', sha: 'bbb2222222222222', kind: 'stale-merged', lastCommit: '2026-07-01T00:00:00Z' },
+          { branch: 'on-origin', sha: 'ccc3333333333333', kind: 'stale-on-remote', lastCommit: '2026-07-01T00:00:00Z', ahead: 3 },
+          { branch: 'only-here', sha: 'ddd4444444444444', kind: 'stale-local-only', lastCommit: '2026-06-01T00:00:00Z', ahead: 4 },
+        ],
+        skipped: [],
+      })
+
+    it('groups the branches by how much deleting them could lose', async () => {
+      const w = await open(mixed())
+      const groups = w.findAll('[data-group]').map((g) => g.attributes('data-group'))
+      expect(groups).toEqual(['pr-merged', 'stale-merged', 'stale-on-remote', 'stale-local-only'])
+      expect(w.get('[data-group="stale-local-only"]').text()).toContain('only on this machine')
+      expect(w.get('[data-group="stale-on-remote"]').text()).toContain('remote')
+    })
+
+    it('ticks the safe ones and leaves the risky ones for the user to choose', async () => {
+      const w = await open(mixed())
+      const checked = (b: string) => (w.get(`input[data-branch="${b}"]`).element as HTMLInputElement).checked
+      expect(checked('pr-one')).toBe(true)
+      expect(checked('merged-in-main')).toBe(true)
+      expect(checked('on-origin')).toBe(false)
+      expect(checked('only-here')).toBe(false)
+      expect(w.get('[data-delete]').text()).toContain('Delete 2 local branches')
+    })
+
+    it('says how many commits exist nowhere else', async () => {
+      const w = await open(mixed())
+      expect(w.get('[data-branch-row="only-here"]').text()).toContain('4 commits exist only here')
+    })
+
+    it('"Select all" never ticks a branch that exists only here', async () => {
+      const w = await open(mixed())
+      await w.get('[data-select-all]').trigger('click')
+      const checked = (b: string) => (w.get(`input[data-branch="${b}"]`).element as HTMLInputElement).checked
+      expect(checked('on-origin')).toBe(true)
+      expect(checked('only-here')).toBe(false)
+    })
+
+    it('needs an explicit confirmation before deleting a branch that exists only here', async () => {
+      vi.mocked(runCleanup).mockResolvedValue([{ branch: 'only-here', sha: 'ddd4444444444444', deleted: true }])
+      const w = await open(mixed())
+      await w.get('[data-select-none]').trigger('click')
+      expect(w.find('[data-ack]').exists()).toBe(false)
+
+      await w.get('input[data-branch="only-here"]').setValue(true)
+      expect(w.find('[data-ack]').exists()).toBe(true)
+      expect(w.get('[data-delete]').attributes('disabled')).toBeDefined() // not until confirmed
+
+      await w.get('[data-ack]').setValue(true)
+      expect(w.get('[data-delete]').attributes('disabled')).toBeUndefined()
+      await w.get('[data-delete]').trigger('click')
+      await flushPromises()
+      expect(runCleanup).toHaveBeenCalledWith('/r', 30, [{ branch: 'only-here', sha: 'ddd4444444444444' }], true)
+    })
+
+    it('does not send the confirmation when no such branch is selected', async () => {
+      vi.mocked(runCleanup).mockResolvedValue([])
+      const w = await open(mixed())
+      await w.get('[data-delete]').trigger('click')
+      await flushPromises()
+      expect(vi.mocked(runCleanup).mock.calls[0][3]).toBe(false)
+    })
+
+    it('forgets the confirmation when the risky branch is unticked again', async () => {
+      const w = await open(mixed())
+      await w.get('input[data-branch="only-here"]').setValue(true)
+      await w.get('[data-ack]').setValue(true)
+      await w.get('input[data-branch="only-here"]').setValue(false)
+      expect(w.find('[data-ack]').exists()).toBe(false)
+      await w.get('input[data-branch="only-here"]').setValue(true)
+      expect((w.get('[data-ack]').element as HTMLInputElement).checked).toBe(false)
+    })
+  })
+
   it('says what it will not touch', async () => {
     const w = await open()
     expect(w.text()).toContain('Remote branches are not touched')
@@ -73,7 +152,7 @@ describe('CleanupModal', () => {
     await w.get('[data-delete]').trigger('click')
     await flushPromises()
 
-    expect(runCleanup).toHaveBeenCalledWith('/r', 30, [{ branch: 'old-two', sha: 'bbb2222222222222' }])
+    expect(runCleanup).toHaveBeenCalledWith('/r', 30, [{ branch: 'old-two', sha: 'bbb2222222222222' }], false)
     expect(w.emitted('deleted')).toHaveLength(1)
   })
 

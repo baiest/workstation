@@ -204,6 +204,54 @@ func TestDeleteBranch(t *testing.T) {
 	}
 }
 
+func TestRemoteContains(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	root := t.TempDir()
+	bare := filepath.Join(root, "origin.git")
+	repo := filepath.Join(root, "repo")
+	for _, d := range []string{bare, repo} {
+		if err := os.Mkdir(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mustGit(t, bare, "init", "--bare", "-b", "main")
+	mustGit(t, repo, "init", "-b", "main")
+	commitFile(t, repo, "a.txt", "1", "c1")
+	mustGit(t, repo, "remote", "add", "origin", bare)
+	mustGit(t, repo, "branch", "pushed")
+	mustGit(t, repo, "checkout", "-b", "local-only")
+	commitFile(t, repo, "b.txt", "2", "only here")
+	mustGit(t, repo, "checkout", "main")
+	mustGit(t, repo, "push", "origin", "main", "pushed")
+	mustGit(t, repo, "fetch", "origin")
+
+	pushed, _ := BranchTip(repo, "pushed")
+	local, _ := BranchTip(repo, "local-only")
+
+	if ok, err := RemoteContains(repo, pushed); err != nil || !ok {
+		t.Errorf("a pushed commit is on a remote: %v %v", ok, err)
+	}
+	if ok, err := RemoteContains(repo, local); err != nil || ok {
+		t.Errorf("a commit that was never pushed is not: %v %v", ok, err)
+	}
+	if _, err := RemoteContains(repo, "--all"); err == nil {
+		t.Error("an option-looking value must be refused")
+	}
+	if ok, err := RemoteContains(repo, "0000000000000000000000000000000000000000"); err == nil && ok {
+		t.Error("an unknown commit cannot be on a remote")
+	}
+
+	noRemote := t.TempDir()
+	mustGit(t, noRemote, "init", "-b", "main")
+	commitFile(t, noRemote, "a.txt", "1", "c1")
+	tip, _ := BranchTip(noRemote, "main")
+	if ok, err := RemoteContains(noRemote, tip); err != nil || ok {
+		t.Errorf("a repo without remotes has nothing on a remote: %v %v", ok, err)
+	}
+}
+
 func TestHeadSHA(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not installed")

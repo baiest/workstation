@@ -18,7 +18,7 @@ const maxCleanupBranches = 200
 // branch itself; this layer only validates the request shape and the repo.
 type CleanupService interface {
 	CleanupPreview(repo string, wts map[string]branches.Worktree, days int, refresh bool) (branches.CleanupResponse, error)
-	CleanupDelete(repo string, wts map[string]branches.Worktree, days int, req []branches.DeleteRequest) ([]branches.DeleteResult, error)
+	CleanupDelete(repo string, wts map[string]branches.Worktree, days int, allowLocalOnly bool, req []branches.DeleteRequest) ([]branches.DeleteResult, error)
 }
 
 // WithCleanup enables GET and POST /api/cleanup.
@@ -77,6 +77,9 @@ type cleanupRequest struct {
 	Repo     string                   `json:"repo"`
 	Days     int                      `json:"days"`
 	Branches []branches.DeleteRequest `json:"branches"`
+	// AllowLocalOnly is the user's explicit confirmation that branches whose
+	// commits exist nowhere else may be deleted.
+	AllowLocalOnly bool `json:"allowLocalOnly"`
 }
 
 // handleCleanupDelete deletes the branches the user ticked in the preview.
@@ -105,7 +108,7 @@ func (s *Server) handleCleanupDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	results, err := s.cleanup.CleanupDelete(repo.Path, worktreesByBranch(repo), req.Days, req.Branches)
+	results, err := s.cleanup.CleanupDelete(repo.Path, worktreesByBranch(repo), req.Days, req.AllowLocalOnly, req.Branches)
 	if errors.Is(err, branches.ErrNoDefaultBranch) {
 		http.Error(w, branches.ErrNoDefaultBranch.Error(), http.StatusUnprocessableEntity)
 		return
