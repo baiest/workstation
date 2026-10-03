@@ -19,10 +19,11 @@ import (
 type CLI struct {
 	root  string
 	alive func(pid int) bool
+	Now   func() time.Time // injectable clock; defaults to time.Now
 }
 
 func NewCLI(root string, alive func(pid int) bool) *CLI {
-	return &CLI{root: root, alive: alive}
+	return &CLI{root: root, alive: alive, Now: time.Now}
 }
 
 type liveSession struct {
@@ -65,6 +66,13 @@ func (c *CLI) Sessions() ([]Session, error) {
 				s.HasPlan = c.planExists(info.Slug)
 			}
 			s.Status, s.RawStatus = statusFor(live[id], c.alive)
+			l := live[id]
+			running := l.SessionID != "" && c.alive(l.Pid)
+			raw := ""
+			if running {
+				raw = l.Status
+			}
+			s.State, s.StateHeuristic = deriveState(running, raw, info.Phase, info.PhaseAt, c.Now())
 			if l, ok := live[id]; ok {
 				s.Title = l.Name
 			}

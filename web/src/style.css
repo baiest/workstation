@@ -254,3 +254,25 @@ button.danger:hover:not(:disabled) { background: var(--danger); border-color: va
 .cleanup .group.kind-stale-on-remote { border-left: 3px solid var(--unknown); padding-left: 0.7rem; }
 .cleanup .ack { display: flex; gap: 0.5rem; align-items: flex-start; margin-top: 0.9rem; padding: 0.6rem 0.8rem; border: 1px solid var(--danger); border-radius: 0.45rem; font-size: 0.9rem; }
 .cleanup .ack input { margin-top: 0.25rem; }
+
+/* Claude session state: tones (working / needs you / failed / quiet) */
+.card.tone-working { --state: var(--working); }
+.card.tone-attention { --state: var(--unknown); }
+.card.tone-danger { --state: var(--danger); }
+.card.tone-idle { --state: var(--idle); }
+.card.tone-unknown { --state: var(--stopped); }
+.card.tone-attention .state { font-weight: 600; }
+.card.tone-attention .dot { animation: pulse 1.2s ease-in-out infinite; }
+.card.tone-danger .state { font-weight: 600; }
+.ticket .cell.claude .tone-attention { color: var(--unknown); font-weight: 600; }
+.ticket .cell.claude .tone-danger { color: var(--danger); font-weight: 600; }
+.ticket .cell.claude .tone-working { color: var(--working); }
+
+/* header: who needs me */
+.session-summary { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-left: auto; }
+.session-summary + .stamp { margin-left: 0; }
+.chip { font-size: 0.82rem; line-height: 1.4rem; padding: 0 0.6rem; border-radius: 0.8rem; border: 1px solid var(--border); white-space: nowrap; }
+.chip.attention { color: var(--unknown); border-color: var(--unknown); font-weight: 600; }
+.chip.working { color: var(--working); border-color: var(--working); }
+.chip.danger { color: var(--danger); border-color: var(--danger); font-weight: 600; }
+@media (prefers-reduced-motion: reduce) { .card.tone-attention .dot { animation: none; } }

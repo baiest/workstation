@@ -69,6 +69,6 @@ func readDesktopFile(path string) (Session, bool) {
 	return Session{
 		ID: id, DesktopID: f.SessionID, Source: SourceDesktop, Title: f.Title,
 		Cwd: f.Cwd, OriginCwd: f.OriginCwd, Branch: f.SourceBranch,
-		Status: StatusUnknown, LastActivity: time.UnixMilli(ms),
+		Status: StatusUnknown, State: StateUnknown, LastActivity: time.UnixMilli(ms),
 	}, true
 }

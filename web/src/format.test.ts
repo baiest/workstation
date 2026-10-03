@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { gitSummary, isStale, matchesFilter, matchNode, prLabel, prTone, relativeTime, safeHref, statusLabel } from './format'
-import type { BranchNode, GitInfo, Pr, Worktree } from './types'
+import {
+  gitSummary, isStale, matchesFilter, matchNode, prLabel, prTone, relativeTime, safeHref, sessionHint, sessionLabel, stateTone, statusLabel,
+} from './format'
+import type { BranchNode, GitInfo, Pr, Session, Worktree } from './types'
 
 const now = new Date('2026-10-02T12:00:00Z')
 
@@ -106,6 +108,54 @@ describe('safeHref', () => {
     undefined,
   ])('drops %s', (u) => {
     expect(safeHref(u)).toBeUndefined()
+  })
+})
+
+describe('Claude session state', () => {
+  const s = (over: Partial<Session> = {}): Session => ({
+    id: 'x', source: 'cli', cwd: '/w', status: 'idle', lastActivity: '2026-10-02T11:00:00Z', resumable: true, hasPlan: false, ...over,
+  })
+
+  it.each([
+    ['thinking', 'Thinking'],
+    ['running-tool', 'Running a tool'],
+    ['waiting', 'Waiting for you'],
+    ['failed', 'Failed'],
+    ['interrupted', 'Interrupted'],
+    ['finished', 'Finished'],
+    ['stopped', 'Stopped'],
+    ['unknown', 'Unknown'],
+  ] as const)('%s is shown as "%s"', (state, label) => {
+    expect(sessionLabel(s({ state }))).toBe(label)
+  })
+
+  it('marks a guess as a guess', () => {
+    expect(sessionLabel(s({ state: 'needs-approval', stateHeuristic: true }))).toBe('May need approval?')
+    expect(sessionHint(s({ state: 'needs-approval', stateHeuristic: true }))).toContain('no result')
+  })
+
+  it('falls back to the process status for older data without a state', () => {
+    expect(sessionLabel(s({ status: 'working' }))).toBe('Working')
+    expect(sessionLabel(s({ status: 'stopped' }))).toBe('Stopped')
+  })
+
+  it('groups states into tones the page colours', () => {
+    expect(stateTone(s({ state: 'thinking' }))).toBe('working')
+    expect(stateTone(s({ state: 'running-tool' }))).toBe('working')
+    expect(stateTone(s({ state: 'waiting' }))).toBe('attention')
+    expect(stateTone(s({ state: 'needs-approval' }))).toBe('attention')
+    expect(stateTone(s({ state: 'failed' }))).toBe('danger')
+    expect(stateTone(s({ state: 'finished' }))).toBe('idle')
+    expect(stateTone(s({ state: 'stopped' }))).toBe('idle')
+    expect(stateTone(s({ state: 'unknown' }))).toBe('unknown')
+    expect(stateTone(undefined)).toBe('none')
+    expect(stateTone(s({ status: 'working' }))).toBe('working') // fallback
+  })
+
+  it('explains every state in a tooltip', () => {
+    for (const state of ['thinking', 'running-tool', 'waiting', 'failed', 'interrupted', 'finished', 'stopped', 'unknown'] as const) {
+      expect(sessionHint(s({ state })).length).toBeGreaterThan(10)
+    }
   })
 })
 

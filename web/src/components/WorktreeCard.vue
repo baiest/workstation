@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { gitSummary, relativeTime, statusLabel } from '../format'
+import { gitSummary, relativeTime, sessionHint, sessionLabel, stateTone } from '../format'
 import type { Pr, Worktree } from '../types'
 import { isFresh, mergedHint, ticketKey } from '../worktrees'
 import PrChip from './PrChip.vue'
@@ -20,6 +20,7 @@ const expanded = ref(false)
 
 const latest = computed(() => props.worktree.sessions[0])
 const state = computed(() => latest.value?.status ?? 'none')
+const tone = computed(() => stateTone(latest.value))
 const extra = computed(() => props.worktree.sessions.length - 1)
 const resumable = computed(() => props.worktree.sessions.find((s) => s.resumable))
 const planned = computed(() => props.worktree.sessions.find((s) => s.hasPlan))
@@ -42,7 +43,7 @@ const ago = (iso: string) => relativeTime(iso, props.now)
 </script>
 
 <template>
-  <article class="card" :class="[`status-${state}`, { dirty: worktree.git.dirty, fresh }]">
+  <article class="card" :class="[`status-${state}`, `tone-${tone}`, { dirty: worktree.git.dirty, fresh }]">
     <header>
       <span class="dot" />
       <span v-if="ticket" class="badge ticket">{{ ticket }}</span>
@@ -51,7 +52,7 @@ const ago = (iso: string) => relativeTime(iso, props.now)
       <span v-if="removable" class="badge merged-hint" title="Its PR is merged and nothing is pending here: this worktree can be removed">
         merged · removable
       </span>
-      <span class="state">{{ latest ? statusLabel(latest.status) : '' }}</span>
+      <span class="state" :title="latest ? sessionHint(latest) : ''">{{ latest ? sessionLabel(latest) : '' }}</span>
     </header>
 
     <div v-if="showBranchLine" class="branch mono clip">{{ branchText }}</div>
@@ -85,8 +86,8 @@ const ago = (iso: string) => relativeTime(iso, props.now)
     <div class="row">
       <span class="k">Claude</span>
       <span v-if="!latest" class="muted">No Claude session</span>
-      <span v-else :title="latest.rawStatus ? `raw status: ${latest.rawStatus}` : ''">
-        {{ statusLabel(latest.status) }} · {{ ago(latest.lastActivity) }}
+      <span v-else :title="sessionHint(latest) || (latest.rawStatus ? `raw status: ${latest.rawStatus}` : '')">
+        {{ sessionLabel(latest) }} · {{ ago(latest.lastActivity) }}
         <button v-if="extra > 0" class="link" @click="expanded = !expanded">+{{ extra }} more</button>
       </span>
     </div>
@@ -97,7 +98,7 @@ const ago = (iso: string) => relativeTime(iso, props.now)
 
     <ul v-if="expanded" class="sessions">
       <li v-for="s in worktree.sessions.slice(1)" :key="s.id">
-        <span class="mini" :class="`status-${s.status}`">{{ statusLabel(s.status) }}</span>
+        <span class="mini" :class="`status-${s.status}`" :title="sessionHint(s)">{{ sessionLabel(s) }}</span>
         <span class="clip">{{ s.title || s.lastMessage || s.id }}</span>
         <span class="muted">{{ ago(s.lastActivity) }}</span>
         <button v-if="s.hasPlan" class="link" data-action="plan-row" @click="emit('plan', s.id)">Plan</button>

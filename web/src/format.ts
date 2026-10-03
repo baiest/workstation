@@ -1,4 +1,4 @@
-import type { BranchNode, ClaudeStatus, GitInfo, Pr, Worktree } from './types'
+import type { BranchNode, ClaudeState, ClaudeStatus, GitInfo, Pr, Session, Worktree } from './types'
 
 export function relativeTime(iso: string, now: Date = new Date()): string {
   const t = Date.parse(iso)
@@ -23,6 +23,65 @@ const labels: Record<ClaudeStatus, string> = {
 
 export function statusLabel(status: ClaudeStatus): string {
   return labels[status]
+}
+
+const stateLabels: Record<ClaudeState, string> = {
+  thinking: 'Thinking',
+  'running-tool': 'Running a tool',
+  'needs-approval': 'May need approval?',
+  waiting: 'Waiting for you',
+  failed: 'Failed',
+  interrupted: 'Interrupted',
+  finished: 'Finished',
+  stopped: 'Stopped',
+  unknown: 'Unknown',
+}
+
+const stateHints: Record<ClaudeState, string> = {
+  thinking: 'The model is working on its answer.',
+  'running-tool': 'A tool was requested a moment ago and is running.',
+  'needs-approval':
+    'A tool was requested and there has been no result for a while: it may be waiting for your approval, or just be a slow tool. This is a guess.',
+  waiting: 'The turn is finished: Claude is waiting for your next message.',
+  failed: 'The last thing recorded was an API error.',
+  interrupted: 'You interrupted it and it is not running.',
+  finished: 'Not running; its last turn completed.',
+  stopped: 'Not running (closed in the middle of a turn, or nothing recorded).',
+  unknown: 'The state cannot be determined (for example a Claude Desktop session).',
+}
+
+/** What the session is doing, in words; falls back to the process status for data without a state. */
+export function sessionLabel(s: Session): string {
+  return s.state ? stateLabels[s.state] : statusLabel(s.status)
+}
+
+export function sessionHint(s: Session): string {
+  return s.state ? stateHints[s.state] : ''
+}
+
+export type StateTone = 'working' | 'attention' | 'danger' | 'idle' | 'unknown' | 'none'
+
+/** The colour family of a session: working, needs you, failed, quiet, unknown. */
+export function stateTone(s?: Session): StateTone {
+  if (!s) return 'none'
+  switch (s.state) {
+    case 'thinking':
+    case 'running-tool':
+      return 'working'
+    case 'waiting':
+    case 'needs-approval':
+      return 'attention'
+    case 'failed':
+      return 'danger'
+    case 'interrupted':
+    case 'finished':
+    case 'stopped':
+      return 'idle'
+    case 'unknown':
+      return 'unknown'
+  }
+  if (s.status === 'working') return 'working'
+  return s.status === 'unknown' ? 'unknown' : 'idle'
 }
 
 export function gitSummary(g: GitInfo): string {

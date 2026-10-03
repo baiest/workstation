@@ -2,6 +2,18 @@
 
 export type ClaudeStatus = 'working' | 'idle' | 'stopped' | 'unknown'
 
+/** What a session is doing now. Only 'needs-approval' is a guess (see stateHeuristic). */
+export type ClaudeState =
+  | 'thinking'
+  | 'running-tool'
+  | 'needs-approval'
+  | 'waiting'
+  | 'failed'
+  | 'interrupted'
+  | 'finished'
+  | 'stopped'
+  | 'unknown'
+
 export interface Session {
   id: string
   desktopId?: string
@@ -11,6 +23,8 @@ export interface Session {
   originCwd?: string
   branch?: string
   status: ClaudeStatus
+  state?: ClaudeState
+  stateHeuristic?: boolean
   rawStatus?: string
   lastActivity: string
   lastMessage?: string

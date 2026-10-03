@@ -290,21 +290,35 @@ subdirectory). A path-prefix match is deliberately **not** used: a session from 
 Anything else goes to **Unlinked sessions**, with a reason: directory no longer exists, not a git repo, or not a
 listed worktree. Several sessions in one worktree are all kept; the newest is shown, the rest under "+N more".
 
-### Claude status — only what can be determined reliably
+### What each Claude session is doing
 
-| Shown | When |
-|---|---|
-| Working | a live process file says `status: "busy"` and its pid is alive |
-| Idle | a live process file says `status: "idle"` and its pid is alive |
-| Stopped | transcript exists, no live process |
-| Unknown | live process with any other status value (raw value in tooltip), or a Desktop session with no CLI match |
+The state combines two things: whether a `claude` process is **alive** (`sessions/<pid>.json` + the pid), and the
+**last meaningful record of the transcript** (assistant / user / `turn_duration`; subagent, injected and bookkeeping
+records are ignored). Cards, ticket rows and a header summary ("2 waiting for you · 1 working · 1 failed") show it.
+
+| Shown | Process | Last record of the transcript | Reliable? |
+|---|---|---|---|
+| **Thinking** | alive | your message, a tool result, or model reasoning | yes |
+| **Running a tool** | alive | a tool request made less than 30 s ago | yes |
+| **May need approval?** | alive | a tool request with no result for more than 30 s | **a guess**: it may also be a slow tool |
+| **Waiting for you** | alive | the turn finished (`turn_duration`, or an assistant `end_turn`) | yes |
+| **Failed** | any | an API error message (`isApiErrorMessage`) | yes (it is recorded) |
+| **Interrupted** | not running | `[Request interrupted by user…]` | yes |
+| **Finished** | not running | the turn finished | yes |
+| **Stopped** | not running | anything else (closed mid-turn) or nothing recorded | yes |
+| **Unknown** | – | a Claude Desktop session with no CLI transcript, or an alive process with no usable record and an unrecognised status | – |
+
+The approval case is the only heuristic: there is no signal that separates "waiting for your approval" from "running a
+slow tool". It is labelled with a question mark and a tooltip, and uses a 30 s threshold.
 
 ## Dependencies on Claude internals (and limitations)
 
 - Everything under "Claude Code sessions" above is an undocumented, internal format and may change between
   Claude releases. If it does, only `internal/claude` needs to change.
 - Only `busy` was observed in `sessions/<pid>.json`; `idle` is mapped by name but was not observed. Other values are shown as Unknown.
-- **"Waiting / needs input" is not implemented**: no verified signal exists for it.
+- **"Waiting for approval" cannot be told apart reliably** from a slow tool (see the table above); it is a labelled guess.
+  The states rely on transcript record shapes (`turn_duration`, `isApiErrorMessage`, `stop_reason`, tool blocks) that are
+  as undocumented as the rest. Only `busy` was ever observed in `sessions/<pid>.json`; the states do not depend on it.
 - Liveness is "pid exists". If the OS reuses a dead session's pid for another process it can be reported as live.
 - A brand-new session has no transcript until its first message, so it does not appear until then.
 - Last message is the last assistant text found within the final 64 KB of the transcript; it can be empty after a long tool output.

@@ -30,20 +30,22 @@ const (
 // Session is one Claude Code conversation. Fields that cannot be determined
 // reliably are left empty / StatusUnknown rather than guessed.
 type Session struct {
-	ID           string    `json:"id"` // CLI session id (transcript file name); Desktop-only sessions fall back to the Desktop id
-	DesktopID    string    `json:"desktopId,omitempty"`
-	Source       Source    `json:"source"`
-	Title        string    `json:"title,omitempty"`
-	Cwd          string    `json:"cwd"`                 // directory the session ran in (usually a worktree)
-	OriginCwd    string    `json:"originCwd,omitempty"` // Desktop only: the repo the worktree was created from
-	Branch       string    `json:"branch,omitempty"`
-	Status       Status    `json:"status"`
-	RawStatus    string    `json:"rawStatus,omitempty"` // untranslated status of a live process, for tooltips
-	LastActivity time.Time `json:"lastActivity"`
-	LastMessage  string    `json:"lastMessage,omitempty"`
-	Resumable    bool      `json:"resumable"`
-	Slug         string    `json:"slug,omitempty"` // names the plan file, CLI sessions only
-	HasPlan      bool      `json:"hasPlan"`        // a plan file for Slug exists on disk
+	ID             string    `json:"id"` // CLI session id (transcript file name); Desktop-only sessions fall back to the Desktop id
+	DesktopID      string    `json:"desktopId,omitempty"`
+	Source         Source    `json:"source"`
+	Title          string    `json:"title,omitempty"`
+	Cwd            string    `json:"cwd"`                 // directory the session ran in (usually a worktree)
+	OriginCwd      string    `json:"originCwd,omitempty"` // Desktop only: the repo the worktree was created from
+	Branch         string    `json:"branch,omitempty"`
+	Status         Status    `json:"status"`
+	RawStatus      string    `json:"rawStatus,omitempty"` // untranslated status of a live process, for tooltips
+	LastActivity   time.Time `json:"lastActivity"`
+	LastMessage    string    `json:"lastMessage,omitempty"`
+	Resumable      bool      `json:"resumable"`
+	State          State     `json:"state"`                    // what it is doing now (thinking, waiting for you, failed...)
+	StateHeuristic bool      `json:"stateHeuristic,omitempty"` // the state is a guess (needs-approval)
+	Slug           string    `json:"slug,omitempty"`           // names the plan file, CLI sessions only
+	HasPlan        bool      `json:"hasPlan"`                  // a plan file for Slug exists on disk
 }
 
 // ResumeID returns the id usable with `claude --resume`, or "" when only a

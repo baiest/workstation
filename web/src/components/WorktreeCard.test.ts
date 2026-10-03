@@ -159,6 +159,36 @@ describe('WorktreeCard', () => {
     expect(old.classes()).not.toContain('fresh')
   })
 
+  describe('what Claude is doing', () => {
+    const withState = (state: Session['state'], heuristic = false) =>
+      render(worktree({ sessions: [session({ state, stateHeuristic: heuristic })] }))
+
+    it.each([
+      ['thinking', 'Thinking', 'working'],
+      ['waiting', 'Waiting for you', 'attention'],
+      ['failed', 'Failed', 'danger'],
+      ['finished', 'Finished', 'idle'],
+    ] as const)('%s is spelled out and coloured', (state, label, tone) => {
+      const w = withState(state)
+      expect(w.get('.state').text()).toBe(label)
+      expect(w.classes()).toContain(`tone-${tone}`)
+    })
+
+    it('shows a guess with a question mark and explains it', () => {
+      const w = withState('needs-approval', true)
+      expect(w.get('.state').text()).toBe('May need approval?')
+      expect(w.get('.state').attributes('title')).toContain('no result')
+    })
+
+    it('says it in the Claude row as well', () => {
+      expect(withState('waiting').text()).toContain('Waiting for you · 2 min ago')
+    })
+
+    it('has no state badge when there is no session', () => {
+      expect(render(worktree({ sessions: [] })).get('.state').text()).toBe('')
+    })
+  })
+
   it('does not make a link out of a hostile PR url', () => {
     const pr = {
       number: 9, title: 't', url: 'javascript:alert(1)', source: 'a', dest: 'main', state: 'open' as const,

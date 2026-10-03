@@ -18,6 +18,8 @@ const (
 )
 
 type transcriptInfo struct {
+	Phase        Phase     // where the conversation ends (see state.go)
+	PhaseAt      time.Time // timestamp of the record that decided the phase
 	Cwd          string
 	Branch       string
 	Slug         string // names the session's plan file: <root>/plans/<slug>.md
@@ -31,8 +33,15 @@ type record struct {
 	Cwd       string `json:"cwd"`
 	GitBranch string `json:"gitBranch"`
 	Slug      string `json:"slug"`
-	Message   *struct {
-		Content json.RawMessage `json:"content"`
+
+	Subtype     string `json:"subtype"`
+	IsApiError  bool   `json:"isApiErrorMessage"`
+	IsSidechain bool   `json:"isSidechain"`
+	IsMeta      bool   `json:"isMeta"`
+
+	Message *struct {
+		Content    json.RawMessage `json:"content"`
+		StopReason string          `json:"stop_reason"`
 	} `json:"message"`
 }
 
@@ -72,6 +81,12 @@ func readTranscript(path string) (transcriptInfo, error) {
 		}
 		if info.Slug == "" {
 			info.Slug = r.Slug
+		}
+		if info.Phase == PhaseNone { // the last meaningful record decides where the conversation stands
+			if p, ok := recordPhase(r); ok {
+				info.Phase = p
+				info.PhaseAt, _ = time.Parse(time.RFC3339Nano, r.Timestamp)
+			}
 		}
 		if info.LastMessage == "" && r.Type == "assistant" {
 			info.LastMessage = lastText(r)

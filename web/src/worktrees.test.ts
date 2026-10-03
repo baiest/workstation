@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { attentionScore, isFresh, mergedHint, sortWorktrees, ticketKey, worktreeActivity } from './worktrees'
+import { attentionScore, isFresh, mergedHint, sortWorktrees, summarizeSessions, ticketKey, worktreeActivity } from './worktrees'
 import type { Pr, Session, Worktree } from './types'
 
 const now = new Date('2026-10-02T12:00:00Z')
@@ -93,6 +93,28 @@ describe('attentionScore', () => {
   it('does not bury a merged PR that still has work in it', () => {
     const dirtyMerged = attentionScore(wt({ git: { ...wt().git, dirty: true } }), pr({ state: 'merged' }))
     expect(dirtyMerged).toBeGreaterThan(attentionScore(wt(), pr({ state: 'merged' })))
+  })
+})
+
+describe('summarizeSessions', () => {
+  const repo = (...worktrees: Worktree[]) => ({ name: 'r', path: '/r', worktrees })
+  const w = (state: Session['state'], heuristic = false) => wt({ sessions: [session({ state, stateHeuristic: heuristic })] })
+
+  it('counts the newest session of each worktree by what the user must do', () => {
+    const got = summarizeSessions([
+      repo(w('waiting'), w('waiting'), w('thinking'), w('running-tool'), w('failed')),
+      repo(w('needs-approval', true), w('finished'), w('stopped'), wt({ name: 'no-session' })),
+    ])
+    expect(got).toEqual({ waiting: 2, working: 2, failed: 1, approval: 1 })
+  })
+
+  it('only looks at the newest session of a worktree, not older ones', () => {
+    const two = wt({ sessions: [session({ state: 'finished' }), session({ id: 'old', state: 'failed' })] })
+    expect(summarizeSessions([repo(two)])).toEqual({ waiting: 0, working: 0, failed: 0, approval: 0 })
+  })
+
+  it('is all zeros for nothing', () => {
+    expect(summarizeSessions([])).toEqual({ waiting: 0, working: 0, failed: 0, approval: 0 })
   })
 })
 

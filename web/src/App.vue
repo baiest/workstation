@@ -10,7 +10,7 @@ import WorktreeCleanupModal from './components/WorktreeCleanupModal.vue'
 import { loadBranchData, newBranchState, type BranchState } from './branchLoader'
 import { matchesFilter, relativeTime, statusLabel } from './format'
 import { buildTickets, matchTicket } from './tickets'
-import { mergedHint, sortWorktrees } from './worktrees'
+import { mergedHint, sortWorktrees, summarizeSessions } from './worktrees'
 import { browserStorage, loadHidden, saveHidden, toggleHidden } from './hidden'
 import type { Pr, Repo, WorkspaceData } from './types'
 import { FONT_DEFAULT, clampFontSize, nextFontSize } from './zoom'
@@ -59,6 +59,8 @@ const store = browserStorage()
 const hidden = ref<string[]>(loadHidden(store))
 const isHidden = (r: Repo) => hidden.value.includes(r.path)
 const hiddenRepos = computed(() => (data.value?.repos ?? []).filter(isHidden))
+// "Who needs me": Claude sessions waiting for you / working / failed, across the visible projects
+const sessionSummary = computed(() => summarizeSessions((data.value?.repos ?? []).filter((r) => !isHidden(r))))
 
 function toggleRepo(repo: Repo) {
   hidden.value = toggleHidden(hidden.value, repo.path)
@@ -208,6 +210,16 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
   <header class="bar">
     <h1>workstation</h1>
     <input ref="filterEl" v-model="query" class="filter" placeholder="Filter worktrees   ( / )" spellcheck="false" />
+    <span v-if="data" class="session-summary" aria-label="Claude sessions">
+      <span v-if="sessionSummary.waiting" class="chip attention" title="Claude finished its turn: it is waiting for your next message">
+        {{ sessionSummary.waiting }} waiting for you
+      </span>
+      <span v-if="sessionSummary.approval" class="chip attention" title="A tool request has had no result for a while (a guess)">
+        {{ sessionSummary.approval }} may need approval
+      </span>
+      <span v-if="sessionSummary.working" class="chip working" title="Thinking or running a tool">{{ sessionSummary.working }} working</span>
+      <span v-if="sessionSummary.failed" class="chip danger" title="The last thing recorded was an API error">{{ sessionSummary.failed }} failed</span>
+    </span>
     <span v-if="data" class="muted stamp">updated {{ relativeTime(data.generatedAt) }}</span>
     <button :title="sortMode === 'activity' ? 'Sorted by what needs attention. Click to sort by name' : 'Sorted by name. Click to sort by activity'" @click="toggleSort">
       Sort: {{ sortMode }}

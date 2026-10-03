@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { gitSummary, relativeTime, statusLabel } from '../format'
+import { gitSummary, relativeTime, sessionHint, sessionLabel, stateTone } from '../format'
 import type { Ticket, TicketItem } from '../tickets'
 import { isFresh } from '../worktrees'
 import PrChip from './PrChip.vue'
@@ -58,7 +58,9 @@ function summary(t: Ticket): string {
           </div>
           <div class="cell claude">
             <template v-if="i.worktree">
-              <span v-if="i.sessions[0]">{{ statusLabel(i.sessions[0].status) }} · {{ ago(i.sessions[0].lastActivity) }}</span>
+              <span v-if="i.sessions[0]" :class="`tone-${stateTone(i.sessions[0])}`" :title="sessionHint(i.sessions[0])">
+                {{ sessionLabel(i.sessions[0]) }} · {{ ago(i.sessions[0].lastActivity) }}
+              </span>
               <span v-else class="muted">no Claude session</span>
             </template>
             <span v-else class="muted">—</span>

@@ -49,6 +49,38 @@ export function attentionScore(w: Worktree, pr?: Pr): number {
   return score
 }
 
+export interface SessionSummary {
+  waiting: number // finished their turn: your move
+  working: number // thinking or running a tool
+  failed: number
+  approval: number // may be waiting for approval (a guess)
+}
+
+/** How many worktrees have Claude waiting for you / working / failed, by their newest session. */
+export function summarizeSessions(repos: { worktrees: Worktree[] }[]): SessionSummary {
+  const sum: SessionSummary = { waiting: 0, working: 0, failed: 0, approval: 0 }
+  for (const repo of repos) {
+    for (const w of repo.worktrees) {
+      switch (w.sessions[0]?.state) {
+        case 'waiting':
+          sum.waiting++
+          break
+        case 'thinking':
+        case 'running-tool':
+          sum.working++
+          break
+        case 'failed':
+          sum.failed++
+          break
+        case 'needs-approval':
+          sum.approval++
+          break
+      }
+    }
+  }
+  return sum
+}
+
 /** Main worktree first, then by attention (or name), newest activity breaking ties. Returns a new array. */
 export function sortWorktrees(
   list: Worktree[],
