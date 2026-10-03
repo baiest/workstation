@@ -248,4 +248,40 @@ describe('WorktreeCard', () => {
       expect(glance).toContain('Fix the cycle warning')
     })
   })
+  describe('focus and where-I-left-off note', () => {
+    const withNote = (note?: { starred?: boolean; text?: string }) =>
+      mount(WorktreeCard, { props: { worktree: worktree(), editor: 'cursor', now, note } })
+
+    it('stars and unstars with the star button', async () => {
+      const off = withNote()
+      expect(off.get('[data-star]').attributes('aria-pressed')).toBe('false')
+      await off.get('[data-star]').trigger('click')
+      expect(off.emitted('star')![0]).toEqual([worktree().path, true])
+
+      const on = withNote({ starred: true })
+      expect(on.get('[data-star]').attributes('aria-pressed')).toBe('true')
+      await on.get('[data-star]').trigger('click')
+      expect(on.emitted('star')![0]).toEqual([worktree().path, false])
+    })
+
+    it('shows the note, or an add link when there is none', () => {
+      expect(withNote({ text: 'next: tests' }).get('[data-note]').text()).toContain('next: tests')
+      expect(withNote().get('[data-add-note]').text()).toContain('note')
+    })
+
+    it('saves the edited note with Enter and drops the edit with Escape', async () => {
+      const w = withNote({ text: 'old' })
+      await w.get('[data-note]').trigger('click')
+      const input = w.get('[data-note-input]')
+      await input.setValue('new text')
+      await input.trigger('keydown', { key: 'Enter' })
+      expect(w.emitted('note')![0]).toEqual([worktree().path, 'new text'])
+      expect(w.find('[data-note-input]').exists()).toBe(false)
+
+      await w.get('[data-note]').trigger('click')
+      await w.get('[data-note-input]').setValue('discard me')
+      await w.get('[data-note-input]').trigger('keydown', { key: 'Escape' })
+      expect(w.emitted('note')).toHaveLength(1)
+    })
+  })
 })

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import { fetchBranches, fetchCleanup, fetchWorkspace, runAction, type Action } from './api'
+import { fetchBranches, fetchCleanup, fetchNotes, fetchWorkspace, runAction, saveNote, type Action } from './api'
 import BranchGraph from './components/BranchGraph.vue'
 import CleanupModal from './components/CleanupModal.vue'
 import PlanModal from './components/PlanModal.vue'
@@ -15,6 +15,7 @@ import { loadBranchData, newBranchState, type BranchState } from './branchLoader
 import { matchesFilter, relativeTime, statusLabel } from './format'
 import { resumeDecision, type ResumeWith } from './resume'
 import { buildTickets, matchTicket } from './tickets'
+import type { Note } from './focus'
 import { branchTidy, tidyCounts, type BranchTidy } from './tidy'
 import { mergedHint, sortWorktrees, summarizeSessions } from './worktrees'
 import { browserStorage, loadHidden, saveHidden, toggleHidden } from './hidden'
@@ -183,6 +184,7 @@ async function refresh() {
   loading.value = true
   try {
     data.value = await fetchWorkspace()
+    loadNotes()
     error.value = ''
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
@@ -207,6 +209,27 @@ async function loadTidy(repo: Repo) {
     branchTidyOf[repo.path] = branchTidy((await fetchCleanup(repo.path, 30)).candidates)
   } catch {
     delete branchTidyOf[repo.path] // the bar just shows less
+  }
+}
+
+// Stars and notes live on the server; a change shows at once and is undone if saving fails.
+const notes = ref<Record<string, Note>>({})
+async function loadNotes() {
+  try {
+    notes.value = await fetchNotes()
+  } catch {
+    // notes are optional: the board works without them
+  }
+}
+async function changeNote(path: string, patch: Note) {
+  const before = notes.value[path]
+  notes.value = { ...notes.value, [path]: { ...before, ...patch } }
+  try {
+    await saveNote(path, notes.value[path])
+    toast.value = ''
+  } catch (e) {
+    notes.value = { ...notes.value, [path]: before }
+    toast.value = `could not save: ${e instanceof Error ? e.message : e}`
   }
 }
 
@@ -350,11 +373,14 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
         :worktrees="repo.worktrees"
         :editor="data!.capabilities.editor"
         :pr-for="(branch) => prFor(repo, branch)"
+        :notes="notes"
         @terminal="(p) => act('terminal', { path: p })"
         @editor="(p) => act('editor', { path: p })"
         @resume="(id) => resumeSession(id)"
         @plan="(id, title) => (planFor = { id, title })"
         @sessions="(p) => openSessions(repo, p)"
+        @star="(p, on) => changeNote(p, { starred: on })"
+        @note="(p, text) => changeNote(p, { text })"
       />
 
       <div v-else-if="tabOf(repo) === 'tickets'" class="tickets-tab">

@@ -320,3 +320,13 @@ button.danger:hover:not(:disabled) { background: var(--danger); border-color: va
 
 .tidy { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem; margin: 0 0 0.8rem; padding: 0.45rem 0.8rem; border: 1px dashed var(--border); border-radius: 0.5rem; font-size: 0.93rem; }
 .tidy-text { color: var(--muted); margin-right: auto; }
+
+.card .star { margin-left: auto; padding: 0 0.2rem; background: none; border: 0; color: var(--muted); font-size: 1.1rem; cursor: pointer; }
+.card .star[aria-pressed='true'] { color: var(--unknown); }
+.card .star + .state { margin-left: 0; }
+.card .note-line { min-width: 0; }
+.card .note { max-width: 100%; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card .note-input { width: 100%; box-sizing: border-box; }
+
+.wip { margin: 0; padding: 0.35rem 0.8rem; border-radius: 0.5rem; background: color-mix(in srgb, var(--unknown) 14%, transparent); color: var(--unknown); font-size: 0.93rem; }
+.lane-focus .lane-title { color: var(--unknown); }

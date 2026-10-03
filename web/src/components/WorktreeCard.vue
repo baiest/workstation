@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref } from 'vue'
 import { gitSummary, relativeTime, sessionHint, sessionLabel, sessionTitle, stateTone } from '../format'
+import type { Note } from '../focus'
 import type { Pr, Worktree } from '../types'
 import { isFresh, mergedHint, ticketKey } from '../worktrees'
 import PrChip from './PrChip.vue'
 
-const props = withDefaults(defineProps<{ worktree: Worktree; editor: string; now?: Date; pr?: Pr }>(), {
+const props = withDefaults(defineProps<{ worktree: Worktree; editor: string; now?: Date; pr?: Pr; note?: Note }>(), {
   now: () => new Date(),
   pr: undefined,
+  note: undefined,
 })
 const emit = defineEmits<{
   terminal: [path: string]
@@ -15,7 +17,24 @@ const emit = defineEmits<{
   resume: [sessionId: string]
   plan: [sessionId: string]
   sessions: [path: string] // open the full list of this worktree's sessions
+  star: [path: string, starred: boolean]
+  note: [path: string, text: string]
 }>()
+
+const editing = ref(false)
+const draft = ref('')
+const noteInput = ref<HTMLInputElement | null>(null)
+async function editNote() {
+  draft.value = props.note?.text ?? ''
+  editing.value = true
+  await nextTick()
+  noteInput.value?.focus()
+}
+function saveNote() {
+  if (!editing.value) return
+  editing.value = false
+  if (draft.value.trim() !== (props.note?.text ?? '')) emit('note', props.worktree.path, draft.value)
+}
 
 const open = ref(false)
 const latest = computed(() => props.worktree.sessions[0])
@@ -52,10 +71,23 @@ const ago = (iso: string) => relativeTime(iso, props.now)
       <span v-if="removable" class="badge merged-hint" title="Its PR is merged and nothing is pending here: this worktree can be removed">
         merged · removable
       </span>
+      <button
+        class="star" data-star :aria-pressed="!!note?.starred" :title="note?.starred ? 'Remove from focus' : 'Put in focus'"
+        @click="emit('star', worktree.path, !note?.starred)"
+      >{{ note?.starred ? '★' : '☆' }}</button>
       <span class="state" :title="latest ? sessionHint(latest) : ''">{{ latest ? sessionLabel(latest) : '' }}</span>
     </header>
 
     <div v-if="showBranchLine" class="branch mono clip">{{ branchText }}</div>
+
+    <div class="note-line">
+      <input
+        v-if="editing" ref="noteInput" v-model="draft" data-note-input class="note-input" maxlength="200" placeholder="Where I left off…"
+        @keydown.enter.prevent="saveNote" @keydown.esc.prevent="editing = false" @blur="saveNote"
+      />
+      <button v-else-if="note?.text" class="link note" data-note title="Click to edit" @click="editNote">📝 {{ note.text }}</button>
+      <button v-else class="link muted" data-add-note @click="editNote">+ note</button>
+    </div>
 
     <div data-glance class="glance">
       <div class="row">

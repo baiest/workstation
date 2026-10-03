@@ -42,4 +42,31 @@ describe('StageBoard', () => {
     await w.get('[data-action=terminal]').trigger('click')
     expect(w.emitted('terminal')![0]).toEqual(['/r/busy'])
   })
+  describe('focus and work in progress', () => {
+    const withNotes = (list: Worktree[], notes: Record<string, { starred?: boolean }>) =>
+      mount(StageBoard, { props: { worktrees: list, editor: 'cursor', prFor: () => undefined, now, notes } })
+
+    it('shows starred worktrees in a Focus strip and not again in their lane', () => {
+      const w = withNotes([wt('a', 1), wt('b', 1)], { '/r/a': { starred: true } })
+      expect(w.get('[data-focus] .card').text()).toContain('a')
+      expect(w.findAll('[data-lane=in-progress] .card')).toHaveLength(1)
+    })
+
+    it('warns softly above the work in progress limit', () => {
+      const many = ['a', 'bb', 'ccc', 'dddd'].map((n) => wt(n, 1))
+      expect(withNotes(many, {}).get('[data-wip]').text()).toContain('4 in progress, limit 3')
+      expect(withNotes(many.slice(0, 3), {}).find('[data-wip]').exists()).toBe(false)
+    })
+
+    it('counts focused worktrees too, wherever they are', () => {
+      const many = ['a', 'bb', 'ccc', 'dddd'].map((n) => wt(n, 1))
+      expect(withNotes(many, { '/r/a': { starred: true } }).get('[data-wip]').text()).toContain('4 in progress')
+    })
+
+    it('passes star and note events up', async () => {
+      const w = withNotes([wt('a', 1)], {})
+      await w.get('[data-star]').trigger('click')
+      expect(w.emitted('star')![0]).toEqual(['/r/a', true])
+    })
+  })
 })
