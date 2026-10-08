@@ -26,7 +26,7 @@ export function worktreeActivity(w: Worktree): number {
   return Math.max(Number.isNaN(commit) ? 0 : commit, Number.isNaN(session) ? 0 : session)
 }
 
-const isLive = (w: Worktree) => w.sessions.some((s) => s.status === 'working' || s.status === 'idle')
+export const isLive = (w: Worktree) => w.sessions.some((s) => s.status === 'working' || s.status === 'idle')
 
 /**
  * Hint (not a guarantee) that a worktree can go: its PR merged, nothing is

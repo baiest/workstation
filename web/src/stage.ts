@@ -1,7 +1,7 @@
 // Which stage of the work a worktree is in, derived from data we already have
 // (Claude state, git, PR, dates). Nothing here is typed in by the user.
 import type { Pr, Worktree } from './types'
-import { worktreeActivity } from './worktrees'
+import { isLive, worktreeActivity } from './worktrees'
 
 export type Stage = 'needs-you' | 'in-progress' | 'review' | 'done' | 'dormant'
 
@@ -18,8 +18,6 @@ export const stageTitle: Record<Stage, string> = {
 export const DORMANT_DAYS = 14
 const DAY = 24 * 3600 * 1000
 const FAILURE_WINDOW = DAY // an old failure of a dead process must not stay red forever
-
-const isLive = (w: Worktree) => w.sessions.some((s) => s.status === 'working' || s.status === 'idle')
 
 function needsYou(w: Worktree, pr: Pr | undefined, now: Date): boolean {
   const s = w.sessions[0]

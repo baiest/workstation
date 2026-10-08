@@ -23,6 +23,7 @@ import { mergedHint, sortWorktrees, summarizeSessions } from './worktrees'
 import { browserStorage, loadHidden, saveHidden, toggleHidden } from './hidden'
 import type { Pr, Repo, WorkspaceData, Worktree } from './types'
 import { FONT_DEFAULT, clampFontSize, nextFontSize } from './zoom'
+import { oneOf, pref, readPref, writePref } from './prefs'
 
 type Tab = 'worktrees' | 'branches' | 'tickets'
 
@@ -43,30 +44,20 @@ const sessionsFor = ref<Worktree | null>(null) // the worktree whose full sessio
 function openSessions(repo: Repo, path: string) {
   sessionsFor.value = repo.worktrees.find((w) => w.path === path) ?? null
 }
-const tabs = reactive<Record<string, Tab>>(loadTabs())
+const tabs = reactive<Record<string, Tab>>(readPref(TAB_KEY, {}, (raw) => JSON.parse(raw)))
 const branchState = reactive<Record<string, BranchState>>({})
 
 // "Resume Claude" in a terminal (CLI) or in the Claude Desktop app. Remembered per browser.
 const RESUME_KEY = 'workstation.resume-with'
-const resumeWith = ref<ResumeWith>(loadResumeWith())
+const resumeWithPref = pref<ResumeWith>(RESUME_KEY, 'cli', oneOf<ResumeWith>('cli', 'desktop'))
+const resumeWith = resumeWithPref.value
 const notice = ref('')
-
-function loadResumeWith(): ResumeWith {
-  try {
-    return localStorage.getItem(RESUME_KEY) === 'desktop' ? 'desktop' : 'cli'
-  } catch {
-    return 'cli'
-  }
-}
 
 // Browser notifications when a session starts waiting for you. Off until asked; remembered per browser.
 const NOTIFY_KEY = 'workstation.notify'
-const notifyOn = ref(false)
-try {
-  notifyOn.value = localStorage.getItem(NOTIFY_KEY) === '1' && typeof Notification !== 'undefined' && Notification.permission === 'granted'
-} catch {
-  // storage blocked: stays off
-}
+const notifyOn = ref(
+  readPref(NOTIFY_KEY, false, (raw) => raw === '1') && typeof Notification !== 'undefined' && Notification.permission === 'granted',
+)
 async function toggleNotify() {
   if (typeof Notification === 'undefined') {
     toast.value = 'this browser has no notifications'
@@ -79,20 +70,11 @@ async function toggleNotify() {
     }
   }
   notifyOn.value = !notifyOn.value
-  try {
-    localStorage.setItem(NOTIFY_KEY, notifyOn.value ? '1' : '0')
-  } catch {
-    // ignore: a convenience
-  }
+  writePref(NOTIFY_KEY, notifyOn.value ? '1' : '0')
 }
 
 function toggleResumeWith() {
-  resumeWith.value = resumeWith.value === 'cli' ? 'desktop' : 'cli'
-  try {
-    localStorage.setItem(RESUME_KEY, resumeWith.value)
-  } catch {
-    // ignore: remembering the choice is a convenience
-  }
+  resumeWithPref.set(resumeWith.value === 'cli' ? 'desktop' : 'cli')
 }
 
 function findSession(id: string) {
@@ -115,23 +97,11 @@ async function resumeSession(id: string) {
 // Order of the worktree cards: by what needs attention (default) or by name.
 type SortMode = 'activity' | 'name'
 const SORT_KEY = 'workstation.sort'
-const sortMode = ref<SortMode>(loadSort())
-
-function loadSort(): SortMode {
-  try {
-    return localStorage.getItem(SORT_KEY) === 'name' ? 'name' : 'activity'
-  } catch {
-    return 'activity'
-  }
-}
+const sortPref = pref<SortMode>(SORT_KEY, 'activity', oneOf<SortMode>('activity', 'name'))
+const sortMode = sortPref.value
 
 function toggleSort() {
-  sortMode.value = sortMode.value === 'activity' ? 'name' : 'activity'
-  try {
-    localStorage.setItem(SORT_KEY, sortMode.value)
-  } catch {
-    // ignore: remembering the order is a convenience
-  }
+  sortPref.set(sortMode.value === 'activity' ? 'name' : 'activity')
 }
 
 // Projects the user hid, remembered per browser.
@@ -151,45 +121,21 @@ function toggleRepo(repo: Repo) {
 
 // UI size: the root font size in px, remembered per browser. Everything is in rem.
 const UI_KEY = 'workstation.ui-px'
-const uiPx = ref(loadUiPx())
-
-function loadUiPx(): number {
-  try {
-    return clampFontSize(parseInt(localStorage.getItem(UI_KEY) ?? '', 10))
-  } catch {
-    return FONT_DEFAULT
-  }
-}
+const uiPref = pref<number>(UI_KEY, FONT_DEFAULT, (raw) => clampFontSize(parseInt(raw, 10)))
+const uiPx = uiPref.value
 
 function applyUiPx() {
   document.documentElement.style.fontSize = `${uiPx.value}px`
 }
 
 function bumpUi(dir: 1 | -1) {
-  uiPx.value = nextFontSize(uiPx.value, dir)
+  uiPref.set(nextFontSize(uiPx.value, dir))
   applyUiPx()
-  try {
-    localStorage.setItem(UI_KEY, String(uiPx.value))
-  } catch {
-    // ignore: remembering the size is a convenience
-  }
-}
-
-function loadTabs(): Record<string, Tab> {
-  try {
-    return JSON.parse(localStorage.getItem(TAB_KEY) ?? '{}')
-  } catch {
-    return {} // storage unavailable: tabs just reset on reload
-  }
 }
 
 function setTab(repo: Repo, tab: Tab) {
   tabs[repo.path] = tab
-  try {
-    localStorage.setItem(TAB_KEY, JSON.stringify(tabs))
-  } catch {
-    // ignore: remembering the tab is a convenience
-  }
+  writePref(TAB_KEY, JSON.stringify(tabs))
 }
 
 const tabOf = (repo: Repo): Tab => tabs[repo.path] ?? 'worktrees'
@@ -285,18 +231,13 @@ async function changeNote(path: string, patch: Note) {
   }
 }
 
-async function act(action: Action, body: { path?: string; sessionId?: string; mode?: ResumeWith; days?: number }) {
+async function act(action: Action, body: { path?: string; sessionId?: string; mode?: ResumeWith }) {
   try {
     await runAction(action, body)
     toast.value = ''
   } catch (e) {
     toast.value = `${action} failed: ${e instanceof Error ? e.message : e}`
   }
-}
-
-async function cleanWithClaude(repo: Repo) {
-  await act('cleanup', { path: repo.path, days: 14 })
-  if (!toast.value) notice.value = 'Claude opened in a terminal with the cleanup prompt'
 }
 
 // Everything of a repo grouped by ticket. PRs come from the branch graph, so the
@@ -441,13 +382,6 @@ onBeforeUnmount(() => {
           @click="wtCleanupFor = repo"
         >
           Clean up worktrees…<span v-if="removableCount(repo)" class="count"> ({{ removableCount(repo) }} merged)</span>
-        </button>
-        <button
-          data-claude-cleanup
-          title="Open Claude in a terminal with a prompt to review and clean up merged worktrees, old branches and stale sessions (it asks before deleting)"
-          @click="cleanWithClaude(repo)"
-        >
-          Clean up with Claude…
         </button>
       </div>
       <StageBoard
