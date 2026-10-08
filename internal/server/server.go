@@ -36,6 +36,7 @@ type Server struct {
 	keyer           tickets.Keyer
 	git             GitOps
 	linkTemplate    string
+	buildSessions   BuildFunc
 
 	mu     sync.Mutex
 	last   *workspace.Workspace // snapshot actions are validated against
@@ -55,6 +56,7 @@ type options struct {
 	keyer           tickets.Keyer
 	git             GitOps
 	linkTemplate    string
+	buildSessions   BuildFunc
 }
 
 // PlanReader loads a session's plan by slug (implemented by claude.CLI).
@@ -117,7 +119,7 @@ func New(build BuildFunc, launcher Launcher, web fs.FS, opts ...Option) http.Han
 	if o.git == nil {
 		o.git = realGit{}
 	}
-	s := &Server{build: build, launcher: launcher, web: web, plans: o.plans, branches: o.branches, cleanup: o.cleanup, worktreeCleanup: o.worktreeCleanup, notes: o.notes, tickets: o.tickets, keyer: o.keyer, git: o.git, linkTemplate: o.linkTemplate}
+	s := &Server{build: build, launcher: launcher, web: web, plans: o.plans, branches: o.branches, cleanup: o.cleanup, worktreeCleanup: o.worktreeCleanup, notes: o.notes, tickets: o.tickets, keyer: o.keyer, git: o.git, linkTemplate: o.linkTemplate, buildSessions: o.buildSessions}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/worktree-cleanup", s.handleWorktreeCleanupPreview)
 	mux.HandleFunc("POST /api/worktree-cleanup", s.handleWorktreeCleanupRemove)
@@ -129,6 +131,7 @@ func New(build BuildFunc, launcher Launcher, web fs.FS, opts ...Option) http.Han
 	mux.HandleFunc("POST /api/tickets/discoveries", s.handleDiscoveryAdd)
 	mux.HandleFunc("POST /api/tickets/triage", s.handleDiscoveryTriage)
 	mux.HandleFunc("POST /api/tickets/dismiss", s.handleDismiss)
+	mux.HandleFunc("GET /api/sessions", s.handleSessions)
 	mux.HandleFunc("GET /api/workspace", s.handleWorkspace)
 	mux.HandleFunc("GET /api/plan", s.handlePlan)
 	mux.HandleFunc("GET /api/branches", s.handleBranches)

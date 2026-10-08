@@ -262,3 +262,23 @@ func TestBuildNamesTheTicketOfEachWorktree(t *testing.T) {
 		t.Fatalf("a tracker key in the branch names the ticket: %q", got)
 	}
 }
+
+func TestBuildSessionsPlacesSessionsWithoutGitDetail(t *testing.T) {
+	f := newFixture(t)
+	sessions := []claude.Session{{ID: "in-wt", Cwd: f.wt, Status: claude.StatusWorking, LastActivity: time.Now()}}
+	pr := func(string) (map[string]*forge.PR, bool) {
+		t.Error("a sessions-only build must not touch pull requests")
+		return nil, false
+	}
+	ws, err := Builder{Provider: fakeProvider{sessions: sessions}, ExtraRepos: []string{f.repo}, PRs: pr}.BuildSessions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	feat := ws.Repos[0].Worktrees[1]
+	if len(feat.Sessions) != 1 || feat.Sessions[0].ID != "in-wt" {
+		t.Fatalf("sessions are placed: %+v", feat.Sessions)
+	}
+	if feat.Git.Dirty || feat.Git.LastCommit != nil || feat.Ticket != "" || feat.PR != nil {
+		t.Fatalf("no git detail, tickets or PRs: %+v", feat)
+	}
+}

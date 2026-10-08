@@ -105,6 +105,7 @@ func run(addr, cfgPath, cacheDir, notesFile, ticketsFile string) error {
 		},
 	}
 	handler := server.New(builder.Build, server.OSLauncher{}, web.Dist(),
+		server.WithSessionsBuild(builder.BuildSessions),
 		server.WithPlans(cli),
 		server.WithBranches(branchSvc),
 		server.WithCleanup(branchSvc),

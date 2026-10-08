@@ -424,3 +424,4 @@ button.danger:hover:not(:disabled) { background: var(--danger); border-color: va
 .bars .bar { width: 100%; min-height: 2px; background: var(--accent); border-radius: 0.2rem 0.2rem 0 0; }
 .bars .n { font-size: 0.82rem; }
 .bars .wk { font-size: 0.72rem; }
+.poll { font: inherit; font-size: 0.85rem; color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 0.4rem; padding: 0.25rem 0.4rem; }

@@ -1,4 +1,4 @@
-import type { BranchesResponse, CleanupPreview, DeleteResult, PlanData, StoredTicket, TicketState, TicketsData, WorkspaceData, WtPreview, WtResult } from './types'
+import type { SessionsData, BranchesResponse, CleanupPreview, DeleteResult, PlanData, StoredTicket, TicketState, TicketsData, WorkspaceData, WtPreview, WtResult } from './types'
 
 export async function fetchWorkspace(): Promise<WorkspaceData> {
   const res = await fetch('/api/workspace', { cache: 'no-store' })
@@ -74,6 +74,8 @@ export async function runAction(action: Action, body: { path?: string; sessionId
   })
   if (!res.ok) throw new Error((await res.text()).trim() || `${res.status}`)
 }
+
+export const fetchSessions = () => getJSON<SessionsData>('/api/sessions')
 
 export const fetchTickets = () => getJSON<TicketsData>('/api/tickets')
 

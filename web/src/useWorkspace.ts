@@ -2,12 +2,12 @@
 // repo's branch graph with its pull requests, and the ticket store. One place, so
 // App.vue only has to show it.
 import { computed, reactive, ref, type Ref } from 'vue'
-import { fetchBranches, fetchCleanup, fetchTickets, fetchWorkspace } from './api'
+import { fetchBranches, fetchCleanup, fetchSessions, fetchTickets, fetchWorkspace } from './api'
 import { loadBranchData, newBranchState, type BranchState } from './branchLoader'
 import { deliver } from './notifier'
 import { transitions } from './notify'
 import { branchTidy, type BranchTidy } from './tidy'
-import type { Repo, TicketsData, WorkspaceData } from './types'
+import type { Repo, SessionsData, TicketsData, WorkspaceData } from './types'
 
 /** The workspace without the sessions the user said no longer matter. */
 export function withoutDismissed(ws: WorkspaceData, dismissed: ReadonlySet<string>): WorkspaceData {
@@ -17,6 +17,27 @@ export function withoutDismissed(ws: WorkspaceData, dismissed: ReadonlySet<strin
     ...ws,
     repos: ws.repos.map((r) => ({ ...r, worktrees: r.worktrees.map((w) => ({ ...w, sessions: keep(w.sessions) })) })),
     unlinked: ws.unlinked.filter((u) => !dismissed.has(u.session.id)),
+  }
+}
+
+/**
+ * The workspace with fresh sessions in it: everything else (git state, PRs,
+ * tickets) stays as it was. A worktree the sessions answer does not mention keeps
+ * its sessions: it is a new one that only the next full refresh knows about.
+ */
+export function withSessions(ws: WorkspaceData, fresh: SessionsData): WorkspaceData {
+  const byPath = new Map(fresh.repos.flatMap((r) => r.worktrees.map((w) => [`${r.path}|${w.path}`, w.sessions] as const)))
+  return {
+    ...ws,
+    repos: ws.repos.map((r) => ({
+      ...r,
+      worktrees: r.worktrees.map((w) => {
+        const sessions = byPath.get(`${r.path}|${w.path}`)
+        return sessions ? { ...w, sessions } : w
+      }),
+    })),
+    unlinked: fresh.unlinked,
+    generatedAt: fresh.generatedAt,
   }
 }
 
@@ -32,6 +53,7 @@ export function useWorkspace({ isHidden, notifyOn }: WorkspaceOptions) {
   const loading = ref(false)
   const branchState = reactive<Record<string, BranchState>>({})
   const branchTidyOf = reactive<Record<string, BranchTidy>>({})
+  let busy = false
 
   const dismissed = computed(() => new Set(store.value?.dismissed ?? []))
   const data = computed(() => (raw.value ? withoutDismissed(raw.value, dismissed.value) : null))
@@ -79,7 +101,24 @@ export function useWorkspace({ isHidden, notifyOn }: WorkspaceOptions) {
     })
   }
 
-  let busy = false
+  /** The cheap refresh: only Claude's state, a few git calls per repo instead of several per worktree. */
+  async function refreshSessions() {
+    if (busy || !raw.value) return
+    busy = true
+    try {
+      const [fresh] = await Promise.all([fetchSessions(), loadTickets()])
+      const prev = data.value
+      if (!raw.value) return
+      raw.value = withSessions(raw.value, fresh)
+      if (data.value) announce(prev, data.value)
+      error.value = ''
+    } catch {
+      // keep what is on screen: the next tick tries again
+    } finally {
+      busy = false
+    }
+  }
+
   async function refresh(quiet = false) {
     if (busy) return
     busy = true
@@ -106,5 +145,5 @@ export function useWorkspace({ isHidden, notifyOn }: WorkspaceOptions) {
     }
   }
 
-  return { raw, data, store, dismissed, error, loading, branchState, branchTidyOf, loadBranches, loadTidy, loadTickets, refresh }
+  return { raw, data, store, dismissed, error, loading, branchState, branchTidyOf, loadBranches, loadTidy, loadTickets, refresh, refreshSessions }
 }

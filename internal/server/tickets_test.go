@@ -273,3 +273,37 @@ func TestTranscriptDiscoveriesLandOpenOnceAndStayDecided(t *testing.T) {
 		t.Fatalf("%+v", final.Discoveries)
 	}
 }
+
+func TestSessionsEndpointRefreshesOnlyTheSessionsOfTheSnapshot(t *testing.T) {
+	full, dir := fixtureWorkspace(t)
+	full.Repos[0].Worktrees[0].Git.Modified = 4
+	quick := workspace.Workspace{Repos: []workspace.Repo{{Name: "r", Path: "/r", Worktrees: []workspace.Worktree{{
+		Name: "wt", Path: dir, Branch: "feat",
+		Sessions: []claude.Session{{ID: "brand-new", Cwd: dir, Resumable: true, Discoveries: []string{"found while watching"}}},
+	}}}}}
+	store := tickets.New("")
+	h := New(func() (workspace.Workspace, error) { return full, nil }, &fakeLauncher{}, fstest.MapFS{},
+		WithTickets(store, tickets.Keyer{}), WithSessionsBuild(func() (workspace.Workspace, error) { return quick, nil }))
+
+	do(h, http.MethodGet, "/api/workspace", "", nil) // the full snapshot first
+	rec := do(h, http.MethodGet, "/api/sessions", "", nil)
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"brand-new"`) || strings.Contains(rec.Body.String(), `"modified"`) {
+		t.Fatalf("only sessions travel: %d %s", rec.Code, rec.Body)
+	}
+
+	// an action may now name the new chat, and the git detail of the snapshot survived
+	if code, _ := post(h, "/api/actions/resume", map[string]any{"sessionId": "brand-new"}); code != 204 {
+		t.Fatalf("resume of a chat seen only by the cheap refresh: %d", code)
+	}
+	if tk, ok := store.Get("/r|branch:feat"); !ok || len(tk.Discoveries) != 1 {
+		t.Fatalf("its DISCOVERY lines are picked up too: %+v", tk)
+	}
+}
+
+func TestSessionsEndpointFallsBackToTheFullBuild(t *testing.T) {
+	h, _, _, builds := newTestServer(t)
+	rec := do(h, http.MethodGet, "/api/sessions", "", nil)
+	if rec.Code != 200 || *builds != 1 || !strings.Contains(rec.Body.String(), `"sess-1"`) {
+		t.Fatalf("%d builds=%d %s", rec.Code, *builds, rec.Body)
+	}
+}

@@ -73,7 +73,7 @@ async function toggleNotify() {
   writePref(NOTIFY_KEY, notifyOn.value ? '1' : '0')
 }
 
-const { data, store: ticketStore, error, loading, branchState, branchTidyOf, loadBranches, loadTickets, refresh } = useWorkspace({ isHidden, notifyOn })
+const { data, store: ticketStore, error, loading, branchState, branchTidyOf, loadBranches, loadTickets, refresh, refreshSessions } = useWorkspace({ isHidden, notifyOn })
 
 function openSessions(repo: Repo, path: string) {
   sessionsFor.value = repo.worktrees.find((w) => w.path === path) ?? null
@@ -257,8 +257,23 @@ function onKey(e: KeyboardEvent) {
   }
 }
 
-const POLL_MS = 30_000
+// Watching Claude is cheap, so it can be often; the git state of every worktree is read every FULL_EVERY ticks.
+const FULL_EVERY = 5
+const POLL_CHOICES = [10, 30, 60] as const
+const pollPref = pref<number>('workstation.poll-s', 30, (raw) => POLL_CHOICES.find((s) => String(s) === raw))
+const pollSeconds = pollPref.value
 let timer: ReturnType<typeof setInterval> | undefined
+let ticks = 0
+function startTimer() {
+  clearInterval(timer)
+  timer = setInterval(() => (++ticks % FULL_EVERY === 0 ? refresh(true) : refreshSessions()), pollSeconds.value * 1000)
+}
+function setPoll(raw: string) {
+  const s = POLL_CHOICES.find((c) => String(c) === raw)
+  if (!s) return
+  pollPref.set(s)
+  startTimer()
+}
 watchEffect(() => {
   document.title = tabTitle(data.value ? needsYouCount(data.value.repos, data.value.unlinked) : 0)
 })
@@ -266,7 +281,7 @@ watchEffect(() => {
 onMounted(() => {
   applyUiPx()
   refresh()
-  timer = setInterval(() => refresh(true), POLL_MS)
+  startTimer()
   window.addEventListener('keydown', onKey)
 })
 onBeforeUnmount(() => {
@@ -297,6 +312,9 @@ onBeforeUnmount(() => {
       <span v-if="sessionSummary.failed" class="chip danger" title="The last thing recorded was an API error">{{ sessionSummary.failed }} failed</span>
     </span>
     <span v-if="data" class="muted stamp">updated {{ relativeTime(data.generatedAt) }}</span>
+    <select data-poll class="poll" title="How often Claude's state is re-read (git state follows every fifth time)" :value="pollSeconds" @change="setPoll(($event.target as HTMLSelectElement).value)">
+      <option v-for="s in POLL_CHOICES" :key="s" :value="s">every {{ s }} s</option>
+    </select>
     <button
       data-notify
       :class="{ active: notifyOn }"

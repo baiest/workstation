@@ -202,6 +202,13 @@ export interface Unlinked {
   reason: string
 }
 
+/** GET /api/sessions: where each session works, without the git state of the worktrees. */
+export interface SessionsData {
+  repos: { path: string; worktrees: { path: string; sessions: Session[] }[] }[]
+  unlinked: Unlinked[]
+  generatedAt: string
+}
+
 export interface WorkspaceData {
   repos: Repo[]
   unlinked: Unlinked[]

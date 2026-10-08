@@ -90,7 +90,16 @@ type Builder struct {
 	Keyer tickets.Keyer
 }
 
-func (b Builder) Build() (Workspace, error) {
+// Build computes the whole workspace: worktrees with their git state, sessions, PRs, tickets.
+func (b Builder) Build() (Workspace, error) { return b.build(false) }
+
+// BuildSessions is Build without `git status` and the rest of the git detail, PRs
+// and tickets: only where each session works. It is what the page asks for every
+// few seconds to watch Claude, and costs a few git calls per repo instead of
+// several per worktree.
+func (b Builder) BuildSessions() (Workspace, error) { return b.build(true) }
+
+func (b Builder) build(sessionsOnly bool) (Workspace, error) {
 	ws := Workspace{GeneratedAt: time.Now(), Repos: []Repo{}, Unlinked: []Unlinked{}, Warnings: []string{}}
 	r := newResolver()
 
@@ -114,9 +123,11 @@ func (b Builder) Build() (Workspace, error) {
 		}
 	}
 
-	ws.Repos = r.finish()
-	b.attachPRs(ws.Repos)
-	b.assignTickets(ws.Repos)
+	ws.Repos = r.finish(sessionsOnly)
+	if !sessionsOnly {
+		b.attachPRs(ws.Repos)
+		b.assignTickets(ws.Repos)
+	}
 	return ws, nil
 }
 
@@ -260,11 +271,14 @@ func (r *resolver) resolve(s claude.Session) placement {
 }
 
 // finish fills git info (bounded concurrency) and returns sorted repos.
-func (r *resolver) finish() []Repo {
+func (r *resolver) finish(skipGit bool) []Repo {
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, gitConcurrency)
 	for _, e := range r.repos {
 		for _, w := range e.wts {
+			if skipGit {
+				continue
+			}
 			wg.Add(1)
 			sem <- struct{}{}
 			go func() {
