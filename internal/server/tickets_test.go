@@ -9,6 +9,7 @@ import (
 	"testing/fstest"
 
 	"workstation/internal/branches"
+	"workstation/internal/claude"
 	"workstation/internal/notes"
 	"workstation/internal/tickets"
 	"workstation/internal/workspace"
@@ -230,5 +231,45 @@ func TestTicketLinkTemplateIsExposedAndLinksAreSaved(t *testing.T) {
 	}
 	if code, _ := post(h, "/api/tickets", map[string]any{"repo": "/r", "ref": "REG-1", "link": "javascript:alert(1)"}); code != 400 {
 		t.Fatalf("a script link must be refused: %d", code)
+	}
+}
+
+func TestTranscriptDiscoveriesLandOpenOnceAndStayDecided(t *testing.T) {
+	ws, dir := fixtureWorkspace(t)
+	ws.Repos[0].Worktrees[0].Sessions[0].Discoveries = []string{"refresh tokens never expire", "retry helper swallows errors"}
+	ws.Repos[0].Worktrees = append(ws.Repos[0].Worktrees, workspace.Worktree{
+		Name: "main", Path: "/r", Branch: "main", IsMain: true, Ticket: "branch:main",
+		Sessions: []claude.Session{{ID: "m1", Discoveries: []string{"never from the main folder"}}},
+	})
+	store := tickets.New("")
+	h := New(func() (workspace.Workspace, error) { return ws, nil }, &fakeLauncher{}, fstest.MapFS{}, WithTickets(store, tickets.Keyer{}))
+
+	do(h, http.MethodGet, "/api/workspace", "", nil)
+	tk, ok := store.Get("/r|branch:feat")
+	if !ok || len(tk.Discoveries) != 2 || tk.Discoveries[0].Source != tickets.SourceTranscript || tk.Discoveries[0].Status != tickets.DiscoveryOpen {
+		t.Fatalf("%+v ok=%v (dir %s)", tk, ok, dir)
+	}
+	if _, ok := store.Get("/r|branch:main"); ok {
+		t.Fatal("the main folder is not a piece of work")
+	}
+
+	// the same chat is read again on every refresh: nothing is added twice, and a decision sticks
+	if _, _, err := store.Triage(tk.ID, tk.Discoveries[0].ID, tickets.TriageDrop); err != nil {
+		t.Fatal(err)
+	}
+	do(h, http.MethodGet, "/api/workspace", "", nil)
+	again, _ := store.Get("/r|branch:feat")
+	if len(again.Discoveries) != 2 || again.Discoveries[0].Status != tickets.DiscoveryDropped {
+		t.Fatalf("a dropped discovery must not come back: %+v", again.Discoveries)
+	}
+
+	// a dismissed session no longer matters: its lines are ignored
+	ws.Repos[0].Worktrees[0].Sessions[0].Discoveries = []string{"from a dismissed chat"}
+	if err := store.Dismiss("sess-1", true); err != nil {
+		t.Fatal(err)
+	}
+	do(h, http.MethodGet, "/api/workspace", "", nil)
+	if final, _ := store.Get("/r|branch:feat"); len(final.Discoveries) != 2 {
+		t.Fatalf("%+v", final.Discoveries)
 	}
 }

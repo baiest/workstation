@@ -17,6 +17,7 @@ type TicketStore interface {
 	AddDiscovery(repo, ref, text, source string) (tickets.Discovery, error)
 	Triage(ticketID, discoveryID, action string) (tickets.Ticket, *tickets.Ticket, error)
 	Dismiss(sessionID string, dismissed bool) error
+	Dismissed(sessionID string) bool
 	Migrated() bool
 	MarkMigrated() error
 }
@@ -266,6 +267,33 @@ func (s *Server) handleDismiss(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// harvestDiscoveries turns the DISCOVERY: lines that chats wrote (when they could
+// not run `workstation discover`) into discoveries of the ticket of the worktree
+// they work in. They only ever land as open: a human triages them like any other.
+// Lines already known, decided or not, are skipped, so a dropped one stays dropped.
+func (s *Server) harvestDiscoveries(ws workspace.Workspace) {
+	if s.tickets == nil {
+		return
+	}
+	for _, r := range ws.Repos {
+		for _, w := range r.Worktrees {
+			if w.IsMain || w.Ticket == "" {
+				continue
+			}
+			for _, sess := range w.Sessions {
+				if len(sess.Discoveries) == 0 || s.tickets.Dismissed(sess.ID) {
+					continue
+				}
+				for _, text := range sess.Discoveries {
+					if _, err := s.tickets.AddDiscovery(r.Path, w.Ticket, text, tickets.SourceTranscript); err != nil {
+						break // a full ticket: the human has to triage before more come in
+					}
+				}
+			}
+		}
+	}
 }
 
 // migrateNotes copies the old per-worktree stars and notes into tickets, once: a

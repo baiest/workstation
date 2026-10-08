@@ -101,6 +101,14 @@ describe('TicketCard', () => {
     expect(clean.emitted('state')![0][1]).toBe('done') // nothing pending: no warning
   })
 
+  it('says where a discovery came from', () => {
+    const d = (id: string, source: 'human' | 'cli' | 'transcript') => ({ id, text: id, source, status: 'open' as const, at: '2026-10-02T10:00:00Z' })
+    const w = render(ticket({ discoveries: [d('a', 'human'), d('b', 'cli'), d('c', 'transcript')] }))
+    expect(w.get('[data-discovery=a]').text()).toContain('noted')
+    expect(w.get('[data-discovery=b]').text()).toContain('from Claude')
+    expect(w.get('[data-discovery=c]').text()).toContain('from a chat')
+  })
+
   it('adds a discovery with Enter, ignoring an empty one', async () => {
     const w = render(ticket())
     await w.get('[data-add-discovery]').trigger('click')

@@ -59,7 +59,7 @@ func (c *CLI) Sessions() ([]Session, error) {
 			}
 			s := Session{
 				ID: id, Source: SourceCLI, Cwd: info.Cwd, Branch: info.Branch, Prompt: info.Prompt,
-				LastActivity: info.LastActivity, LastMessage: info.LastMessage,
+				LastActivity: info.LastActivity, LastMessage: info.LastMessage, Discoveries: info.Discoveries,
 			}
 			if info.StartCwd != "" && info.StartCwd != info.Cwd {
 				s.StartCwd = info.StartCwd

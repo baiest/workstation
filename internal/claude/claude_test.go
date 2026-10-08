@@ -2,7 +2,9 @@ package claude
 
 import (
 	"bufio"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -386,5 +388,53 @@ func TestMerge(t *testing.T) {
 	}
 	if byID["cli-2"].Source != SourceCLI || byID["cli-9"].Title != "Only desktop" {
 		t.Fatalf("unmerged sessions altered: %+v", got)
+	}
+}
+
+func assistantText(ts, text string) string {
+	b, _ := json.Marshal(map[string]any{"type": "assistant", "timestamp": ts, "cwd": "/w",
+		"message": map[string]any{"role": "assistant", "content": []map[string]string{{"type": "text", "text": text}}}})
+	return string(b) + "\n"
+}
+
+func TestReadTranscriptCollectsDiscoveryLines(t *testing.T) {
+	content := assistantText("2026-10-02T01:00:00.000Z", "Fixed it.\nDISCOVERY: refresh tokens never expire\nand more text") +
+		assistantText("2026-10-02T02:00:00.000Z", "- DISCOVERY:   the retry   helper swallows errors\n* DISCOVERY: refresh tokens never expire\nnot a DISCOVERY: in the middle of a line") +
+		assistantText("2026-10-02T03:00:00.000Z", "DISCOVERY:\nDISCOVERY: "+strings.Repeat("é", 400)) +
+		`{"type":"assistant","isSidechain":true,"timestamp":"2026-10-02T03:30:00.000Z","cwd":"/w","message":{"role":"assistant","content":[{"type":"text","text":"DISCOVERY: from a subagent"}]}}` + "\n" +
+		`{"type":"user","timestamp":"2026-10-02T03:40:00.000Z","cwd":"/w","message":{"role":"user","content":"DISCOVERY: typed by the user"}}` + "\n"
+	p := filepath.Join(t.TempDir(), "s.jsonl")
+	write(t, p, content)
+
+	got, err := readTranscript(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Discoveries) != 3 {
+		t.Fatalf("discoveries = %q", got.Discoveries)
+	}
+	if got.Discoveries[0] != "refresh tokens never expire" || got.Discoveries[1] != "the retry helper swallows errors" {
+		t.Fatalf("oldest first, spaces collapsed, a repeat counted once: %q", got.Discoveries[:2])
+	}
+	if n := len([]rune(got.Discoveries[2])); n != maxDiscoveryRunes {
+		t.Fatalf("a long line is cut to %d runes, got %d", maxDiscoveryRunes, n)
+	}
+	for _, d := range got.Discoveries {
+		if strings.Contains(d, "subagent") || strings.Contains(d, "typed by the user") || strings.Contains(d, "middle") {
+			t.Errorf("only the assistant's own lines that start with the mark count: %q", d)
+		}
+	}
+}
+
+func TestDiscoveriesAreCapped(t *testing.T) {
+	var b strings.Builder
+	for i := 0; i < maxDiscoveries+10; i++ {
+		b.WriteString(assistantText("2026-10-02T01:00:00.000Z", fmt.Sprintf("DISCOVERY: finding %d", i)))
+	}
+	p := filepath.Join(t.TempDir(), "s.jsonl")
+	write(t, p, b.String())
+	got, _ := readTranscript(p)
+	if len(got.Discoveries) != maxDiscoveries || got.Discoveries[len(got.Discoveries)-1] != fmt.Sprintf("finding %d", maxDiscoveries+9) {
+		t.Fatalf("keep the most recent %d: %d %q", maxDiscoveries, len(got.Discoveries), got.Discoveries)
 	}
 }

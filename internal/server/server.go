@@ -247,6 +247,7 @@ func (s *Server) refresh() (workspace.Workspace, error) {
 	f.ws, f.err = s.build()
 	if f.err == nil {
 		s.migrateNotes(f.ws)
+		s.harvestDiscoveries(f.ws)
 	}
 	return f.ws, f.err
 }

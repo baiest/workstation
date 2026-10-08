@@ -27,6 +27,7 @@ type transcriptInfo struct {
 	Slug         string // names the session's plan file: <root>/plans/<slug>.md
 	LastActivity time.Time
 	LastMessage  string
+	Discoveries  []string // lines the assistant marked DISCOVERY:, oldest first (see discoveriesOf)
 }
 
 type record struct {
@@ -66,6 +67,7 @@ func readTranscript(path string) (transcriptInfo, error) {
 		return info, err
 	}
 
+	var found [][]string // one entry per assistant message, newest first
 	for i := len(tail) - 1; i >= 0; i-- {
 		var r record
 		if json.Unmarshal(tail[i], &r) != nil {
@@ -94,7 +96,13 @@ func readTranscript(path string) (transcriptInfo, error) {
 		if info.LastMessage == "" && r.Type == "assistant" {
 			info.LastMessage = lastText(r)
 		}
+		if r.Type == "assistant" && !r.IsSidechain && !r.IsMeta {
+			if d := discoveriesOf(r); len(d) > 0 {
+				found = append(found, d)
+			}
+		}
 	}
+	info.Discoveries = oldestFirst(found)
 
 	// Cwd is where the session works NOW (the latest record): that is the worktree it
 	// belongs to. A chat often starts in the repo root and then enters a worktree.
@@ -270,4 +278,63 @@ func lastText(r record) string {
 		return text
 	}
 	return ""
+}
+
+// discoveryMark is how an assistant message flags a side finding when it cannot
+// run `workstation discover`: a line that starts with it (after list markers).
+// A fixed word, not a guess: nothing here tries to understand the text.
+const discoveryMark = "DISCOVERY:"
+
+const (
+	maxDiscoveryRunes = 280 // below the store's limit, so a line is never refused for its length
+	maxDiscoveries    = 20  // per session: a runaway transcript cannot flood the board
+)
+
+// discoveriesOf returns the DISCOVERY: lines of an assistant record, in order.
+func discoveriesOf(r record) []string {
+	if r.Message == nil {
+		return nil
+	}
+	var out []string
+	for _, b := range blocksOf(r.Message.Content) {
+		if b.Type != "text" {
+			continue
+		}
+		for _, line := range strings.Split(b.Text, "\n") {
+			line = strings.TrimLeft(strings.TrimSpace(line), "-*>• \t")
+			rest, ok := strings.CutPrefix(line, discoveryMark)
+			if !ok {
+				continue
+			}
+			text := strings.Join(strings.Fields(rest), " ")
+			if runes := []rune(text); len(runes) > maxDiscoveryRunes {
+				text = string(runes[:maxDiscoveryRunes-1]) + "…"
+			}
+			if text != "" {
+				out = append(out, text)
+			}
+		}
+	}
+	return out
+}
+
+// oldestFirst puts what was collected walking the tail backwards (one slice per
+// message, newest message first) into chronological order, without repeats
+// (the earliest mention counts), capped at the most recent maxDiscoveries.
+func oldestFirst(newestFirst [][]string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for i := len(newestFirst) - 1; i >= 0; i-- {
+		for _, d := range newestFirst[i] {
+			key := strings.ToLower(d)
+			if !seen[key] {
+				seen[key] = true
+				out = append(out, d)
+			}
+		}
+	}
+	if len(out) > maxDiscoveries {
+		out = out[len(out)-maxDiscoveries:]
+	}
+	return out
 }

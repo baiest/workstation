@@ -461,3 +461,24 @@ func TestHistoryIsBoundedAndAPromotedTicketStartsParked(t *testing.T) {
 		t.Fatalf("%+v %v", born, err)
 	}
 }
+
+func TestATranscriptLineIsNotResurrectedAfterItWasDecided(t *testing.T) {
+	s, _ := newStore(t)
+	d, _ := s.AddDiscovery("/r", "REG-1", "same line", SourceTranscript)
+	if again, _ := s.AddDiscovery("/r", "REG-1", "SAME line", SourceTranscript); again.ID != d.ID {
+		t.Fatal("seen again: still one discovery")
+	}
+	if _, _, err := s.Triage("/r|REG-1", d.ID, TriageDrop); err != nil {
+		t.Fatal(err)
+	}
+	if back, _ := s.AddDiscovery("/r", "REG-1", "same line", SourceTranscript); back.ID != d.ID {
+		t.Fatal("a dropped line from a transcript must not come back")
+	}
+	if tk, _ := s.Get("/r|REG-1"); len(tk.Discoveries) != 1 || tk.Discoveries[0].Status != DiscoveryDropped {
+		t.Fatalf("%+v", tk.Discoveries)
+	}
+	// a person (or the CLI) saying it again on purpose is a new discovery
+	if fresh, _ := s.AddDiscovery("/r", "REG-1", "same line", SourceHuman); fresh.ID == d.ID {
+		t.Fatal("a deliberate note is not swallowed by an old decision")
+	}
+}

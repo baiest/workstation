@@ -48,6 +48,7 @@ type Session struct {
 	StateHeuristic bool      `json:"stateHeuristic,omitempty"` // the state is a guess (needs-approval)
 	Slug           string    `json:"slug,omitempty"`           // names the plan file, CLI sessions only
 	HasPlan        bool      `json:"hasPlan"`                  // a plan file for Slug exists on disk
+	Discoveries    []string  `json:"-"`                        // lines the chat marked DISCOVERY: (only in the last part of the transcript); merged into tickets by the server
 }
 
 // ResumeID returns the id usable with `claude --resume`, or "" when only a

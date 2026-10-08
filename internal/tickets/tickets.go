@@ -55,8 +55,9 @@ const (
 
 // Discovery sources.
 const (
-	SourceHuman = "human"
-	SourceCLI   = "cli"
+	SourceHuman      = "human"
+	SourceCLI        = "cli"
+	SourceTranscript = "transcript" // a line a chat marked DISCOVERY:, picked up by workstation itself
 )
 
 const (
@@ -493,7 +494,7 @@ func (s *Store) AddDiscovery(repo, ref, text, source string) (Discovery, error) 
 	if err := tooLong("discovery", text, MaxDiscovery); err != nil {
 		return Discovery{}, err
 	}
-	if source != SourceCLI {
+	if source != SourceCLI && source != SourceTranscript {
 		source = SourceHuman
 	}
 	s.mu.Lock()
@@ -503,8 +504,10 @@ func (s *Store) AddDiscovery(repo, ref, text, source string) (Discovery, error) 
 		return Discovery{}, err
 	}
 	for _, d := range t.Discoveries {
-		if d.Status == DiscoveryOpen && strings.EqualFold(d.Text, text) {
-			return d, nil // the same line twice is one discovery
+		// The same line twice is one discovery. A line picked up from a transcript is seen again on every
+		// refresh, so it must also match one already decided: a dropped discovery must not come back.
+		if strings.EqualFold(d.Text, text) && (d.Status == DiscoveryOpen || source == SourceTranscript) {
+			return d, nil
 		}
 	}
 	open := 0
@@ -623,6 +626,14 @@ func (s *Store) Dismiss(sessionID string, dismissed bool) error {
 	}
 	s.data.Dismissed[sessionID] = s.now().UTC().Format(time.RFC3339)
 	return s.save()
+}
+
+// Dismissed reports whether the session was dismissed.
+func (s *Store) Dismissed(sessionID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, ok := s.data.Dismissed[sessionID]
+	return ok
 }
 
 // Migrated reports whether the old per-worktree stars and notes were already copied in.

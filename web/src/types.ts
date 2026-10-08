@@ -216,7 +216,7 @@ export type TicketState = '' | 'backlog' | 'ready' | 'active' | 'parked' | 'bloc
 export interface Discovery {
   id: string
   text: string
-  source: 'human' | 'cli'
+  source: 'human' | 'cli' | 'transcript'
   status: 'open' | 'dropped' | 'in-scope' | 'promoted'
   promotedTo?: string
   at: string

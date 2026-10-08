@@ -216,7 +216,7 @@ function confirmBlock() {
     <ul v-if="t.openDiscoveries.length" class="discoveries" data-discoveries>
       <li v-for="d in t.openDiscoveries" :key="d.id" class="discovery" :data-discovery="d.id">
         <span class="d-text clip" :title="d.text">🔎 {{ d.text }}</span>
-        <span class="muted d-meta">{{ d.source === 'cli' ? 'from Claude' : 'noted' }} · {{ relativeTime(d.at, now) }}</span>
+        <span class="muted d-meta">{{ d.source === 'cli' ? 'from Claude' : d.source === 'transcript' ? 'from a chat' : 'noted' }} · {{ relativeTime(d.at, now) }}</span>
         <button class="link" data-triage="drop" title="Not worth doing" @click="emit('triage', t, d.id, 'drop')">Drop</button>
         <button class="link" data-triage="in-scope" title="It is part of this ticket after all" @click="emit('triage', t, d.id, 'in-scope')">In scope</button>
         <button class="link" data-triage="promote" title="Becomes its own ticket, parked" @click="emit('triage', t, d.id, 'promote')">New ticket</button>

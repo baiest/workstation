@@ -21,6 +21,8 @@ about each ticket. From inside the worktree you work in:
   (what is done, what is left, any risk). Do not rely on this chat being resumable.
 
 If a command says workstation is not running, skip it and tell me once; do not retry in a loop.
+If you cannot run commands, write the discovery as a line of its own that starts with `DISCOVERY:` in your
+reply; workstation reads those lines from the transcript.
 ````
 
 ## What each command does
@@ -30,6 +32,9 @@ If a command says workstation is not running, skip it and tell me once; do not r
 | `workstation ticket` | Prints the ticket of the current worktree: state, branch, blocked reason, next step, open discoveries. Changes nothing. |
 | `workstation discover "text"` | Adds a discovery (one line, 300 characters at most) to that ticket. Always lands "open": you triage it in the board (drop / in scope / new ticket, which is created *parked*). |
 | `workstation next "text"` | Replaces that ticket's next step (1000 characters at most). |
+
+Lines in a chat that start with `DISCOVERY:` are picked up from the transcript too (only from the last 64 KB of
+it, so they are best written as they happen). They land as open discoveries, once; a dropped one never comes back.
 
 The ticket is decided by the server, from the branch of the worktree: a tracker key in the branch name
 (`feature/REG-123-x` is `REG-123`), otherwise the branch itself.
