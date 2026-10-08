@@ -1,34 +1,68 @@
+/* Design tokens. One cool-tinted neutral family, one accent, semantic state colors.
+   Older names (--panel, --working, --idle, --unknown...) are kept so components do not change. */
 :root {
-  --bg: #0e1116;
-  --panel: #151a21;
-  --border: #272f3a;
-  --text: #dde3ea;
-  --muted: #8b95a3;
-  --accent: #6aa9ff;
-  --working: #3fb950;
-  --idle: #58a6ff;
-  --stopped: #6e7681;
-  --unknown: #d29922;
-  --dirty: #d29922;
-  --danger: #f85149;
-  --mono: ui-monospace, 'Cascadia Code', 'SF Mono', Menlo, Consolas, monospace;
+  --bg: #0c0f13;
+  --panel: #12161c;
+  --surface-2: #181d24;
+  --surface-3: #1f252e;
+  --border: #232a34;
+  --border-strong: #323b48;
+  --text: #e7eaee;
+  --muted: #8d97a5;
+  --accent: #7fa8ee;
+  --on-accent: #0b1220;
+  --working: #4cb782;
+  --idle: #6f9fe6;
+  --stopped: #6f7885;
+  --unknown: #d4a24a;
+  --dirty: #d4a24a;
+  --danger: #e5675f;
+  --merged: #a68ce6;
+
+  --font: 'Geist Variable', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --mono: 'Geist Mono Variable', ui-monospace, 'Cascadia Code', 'SF Mono', Menlo, Consolas, monospace;
+
+  /* radii: tighter on inner controls, softer on containers */
+  --r-sm: 0.3rem;
+  --r-md: 0.45rem;
+  --r-lg: 0.65rem;
+
+  /* z-index scale */
+  --z-bar: 10;
+  --z-overlay: 100;
+
+  /* tinted shadows, one light source from above */
+  --shadow-1: 0 1px 0 rgb(255 255 255 / 0.03) inset, 0 1px 2px rgb(4 8 14 / 0.4);
+  --shadow-2: 0 18px 50px -12px rgb(4 8 14 / 0.65), 0 2px 6px rgb(4 8 14 / 0.4);
+
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --t-fast: 140ms;
+  --t-med: 220ms;
+
   color-scheme: dark;
 }
 
 @media (prefers-color-scheme: light) {
   :root {
-    --bg: #f6f7f9;
+    --bg: #f5f6f8;
     --panel: #ffffff;
-    --border: #dde1e6;
-    --text: #1f2933;
-    --muted: #5f6b7a;
-    --accent: #1f6feb;
-    --working: #1a7f37;
-    --idle: #0969da;
-    --stopped: #8c959f;
-    --unknown: #9a6700;
-    --dirty: #9a6700;
-    --danger: #cf222e;
+    --surface-2: #eef0f3;
+    --surface-3: #e6e9ee;
+    --border: #dfe3e9;
+    --border-strong: #c9d0d9;
+    --text: #1b222b;
+    --muted: #596574;
+    --accent: #2a63c9;
+    --on-accent: #ffffff;
+    --working: #1c7a4d;
+    --idle: #1f62c4;
+    --stopped: #7d8794;
+    --unknown: #96640a;
+    --dirty: #96640a;
+    --danger: #c4372f;
+    --merged: #7a58d0;
+    --shadow-1: 0 1px 2px rgb(30 45 70 / 0.08);
+    --shadow-2: 0 18px 50px -12px rgb(30 45 70 / 0.28), 0 2px 6px rgb(30 45 70 / 0.1);
     color-scheme: light;
   }
 }
@@ -38,7 +72,7 @@
 html { font-size: 18px; }
 
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--text); font: 1rem/1.5 system-ui, -apple-system, 'Segoe UI', sans-serif; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 1rem/1.5 var(--font); font-feature-settings: 'cv11', 'ss01'; -webkit-font-smoothing: antialiased; text-wrap: pretty; }
 .mono { font-family: var(--mono); font-size: 0.88em; }
 .muted { color: var(--muted); }
 .clip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
@@ -46,7 +80,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font: 1rem/1.5 syst
 button { font: inherit; font-size: 0.9rem; color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 0.4rem; padding: 0.28rem 0.8rem; cursor: pointer; }
 button:hover:not(:disabled) { border-color: var(--accent); }
 button:disabled { opacity: 0.6; cursor: default; }
-button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 button.link { border: 0; background: none; padding: 0 0.25rem; color: var(--accent); }
 
 .bar { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 0.8rem; padding: 0.7rem 1.5rem; background: var(--bg); border-bottom: 1px solid var(--border); }
@@ -112,7 +146,7 @@ section h2 .path { font-weight: 400; text-transform: none; letter-spacing: 0; }
 .pr:hover { border-color: var(--accent); }
 .pr-open { color: var(--working); border-color: var(--working); }
 .pr-draft { color: var(--muted); border-style: dashed; }
-.pr-merged { color: #a371f7; border-color: #a371f7; }
+.pr-merged { color: var(--merged); border-color: var(--merged); }
 .pr-declined { color: var(--stopped); border-color: var(--stopped); text-decoration: line-through; }
 
 /* branch graph (node size is set in BranchGraph.vue, in rem) */
@@ -182,7 +216,7 @@ section h2 .path { font-weight: 400; text-transform: none; letter-spacing: 0; }
 .branch-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.6rem; margin-bottom: 0.2rem; }
 .branch-actions .toggle { margin-bottom: 0; }
 button.danger { border-color: var(--danger); color: var(--danger); }
-button.danger:hover:not(:disabled) { background: var(--danger); border-color: var(--danger); color: #fff; }
+button.danger:hover:not(:disabled) { background: var(--danger); border-color: var(--danger); color: var(--on-accent); }
 .cleanup .days { width: 4.6rem; font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 0.35rem; padding: 0.1rem 0.4rem; }
 .cleanup .bulk { display: flex; gap: 0.6rem; margin: 0.4rem 0; }
 .cleanup ul { list-style: none; margin: 0.3rem 0; padding: 0; }
@@ -208,21 +242,21 @@ button.danger:hover:not(:disabled) { background: var(--danger); border-color: va
 .card .branch { color: var(--accent); font-size: 0.85rem; }
 .card .folder { color: var(--muted); }
 .badge.ticket { flex: none; color: var(--accent); border-color: var(--accent); font-family: var(--mono); font-size: 0.74rem; }
-.badge.merged-hint { flex: none; color: #a371f7; border-color: #a371f7; }
+.badge.merged-hint { flex: none; color: var(--merged); border-color: var(--merged); }
 .card.fresh { box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent), 0 0 12px color-mix(in srgb, var(--accent) 22%, transparent); }
 
 /* branch graph: PR nodes vs branches without a PR, and recent activity */
 .gnode { --tone: var(--border); }
 .gnode.pr-open { --tone: var(--working); }
 .gnode.pr-draft { --tone: var(--muted); }
-.gnode.pr-merged { --tone: #a371f7; }
+.gnode.pr-merged { --tone: var(--merged); }
 .gnode.pr-declined { --tone: var(--stopped); }
 .gnode.has-pr { background: color-mix(in srgb, var(--tone) 8%, var(--bg)); border-color: color-mix(in srgb, var(--tone) 55%, var(--border)); }
 .gnode.no-pr { border-style: dashed; background: transparent; }
 .gnode .title { font-size: 0.98rem; }
 .gnode .title.mono { font-size: 0.9rem; }
 .gnode .branch-name { color: var(--accent); font-size: 0.8rem; }
-.new-badge { flex: none; font-size: 0.68rem; line-height: 1.25rem; padding: 0 0.4rem; border-radius: 0.7rem; background: var(--accent); color: #fff; text-transform: uppercase; letter-spacing: 0.05em; }
+.new-badge { flex: none; font-size: 0.68rem; line-height: 1.25rem; padding: 0 0.4rem; border-radius: 0.7rem; background: var(--accent); color: var(--on-accent); text-transform: uppercase; letter-spacing: 0.05em; }
 .gnode.fresh { opacity: 1; box-shadow: 0 0 0 2px var(--accent), 0 0 14px color-mix(in srgb, var(--accent) 40%, transparent); }
 .gnode.fresh.match { box-shadow: 0 0 0 3px var(--accent), 0 0 16px color-mix(in srgb, var(--accent) 55%, transparent); }
 .swatch.box { width: 1.1rem; height: 0.8rem; border: 2px solid var(--muted); border-radius: 0.2rem; vertical-align: middle; }
@@ -297,7 +331,7 @@ button.danger:hover:not(:disabled) { background: var(--danger); border-color: va
 .session .s-actions button { font-size: 0.8rem; padding: 0.15rem 0.6rem; }
 .session .s-last { margin: 0.15rem 0 0 8.1rem; font-size: 0.85rem; }
 
-.active { margin: 0 0 1.5rem; }
+section.active { margin: 0 0 1.5rem; } /* the "Active now" block; buttons also get a class "active" */
 .active ul { list-style: none; margin: 0.3rem 0; padding: 0; }
 .active-row { display: flex; align-items: baseline; gap: 0.7rem; padding: 0.3rem 0.6rem; font-size: 0.93rem; border-left: 3px solid var(--state, var(--stopped)); }
 .active-row.tone-working { --state: var(--working); }
@@ -337,7 +371,7 @@ button.danger:hover:not(:disabled) { background: var(--danger); border-color: va
 .views button { border-radius: 0; }
 .views button:first-child { border-radius: 0.4rem 0 0 0.4rem; }
 .views button:last-child { border-radius: 0 0.4rem 0.4rem 0; border-left: 0; }
-.views button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.views button.active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .ticket-board { display: flex; flex-direction: column; gap: 1.1rem; }
 .ticket-board .tickets { gap: 0.7rem; }
 .ticket.state-active { border-left: 0.2rem solid var(--working); }
@@ -388,26 +422,6 @@ button.danger:hover:not(:disabled) { background: var(--danger); border-color: va
 .dag-title { font-size: 0.92rem; }
 .dag-repo { font-size: 0.78rem; }
 
-/* dependencies */
-.badge.dep { display: inline-flex; align-items: center; gap: 0.2rem; }
-.badge.dep button { font-size: 0.85rem; line-height: 1; }
-.badge.dep-done { color: var(--working); border-color: var(--working); text-decoration: line-through; }
-.badge.dep-gone { border-style: dashed; }
-.waiting { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; margin: 0 0 0.4rem; font-size: 0.9rem; }
-.waiting select { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--accent); border-radius: 0.4rem; padding: 0.15rem 0.4rem; max-width: 22rem; }
-.unblockable { color: var(--working); font-size: 0.9rem; margin: 0 0 0.4rem; }
-.deps { display: flex; flex-direction: column; gap: 0.6rem; }
-.dag-scroll { overflow: auto; padding: 0.5rem 0 1rem; }
-.dag { position: relative; }
-.dag svg { position: absolute; inset: 0; pointer-events: none; }
-.dag-edge { fill: none; stroke: var(--muted); stroke-width: 1.6; }
-.dag-edge.settled { stroke-dasharray: 4 4; opacity: 0.55; }
-.dag-node { position: absolute; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; gap: 0.3rem; padding: 0.4rem 0.7rem; background: var(--panel); border: 1px solid var(--border); border-radius: 0.5rem; }
-.dag-node.waiting { border-color: var(--danger); }
-.dag-node.state-done { opacity: 0.6; }
-.dag-top { display: flex; align-items: center; gap: 0.4rem; min-width: 0; }
-.dag-title { font-size: 0.92rem; }
-.dag-repo { font-size: 0.78rem; }
 .tracker-link { flex: none; font-size: 0.82rem; color: var(--accent); text-decoration: none; }
 .tracker-link:hover { text-decoration: underline; }
 
@@ -425,3 +439,80 @@ button.danger:hover:not(:disabled) { background: var(--danger); border-color: va
 .bars .n { font-size: 0.82rem; }
 .bars .wk { font-size: 0.72rem; }
 .poll { font: inherit; font-size: 0.85rem; color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 0.4rem; padding: 0.25rem 0.4rem; }
+
+/* ---------------------------------------------------------------------------------------------
+   Polish layer: typography, surfaces, states and motion. It only restyles; no selector's job
+   changes. Kept last so it can refine the rules above in one place.
+   --------------------------------------------------------------------------------------------- */
+html { scroll-behavior: smooth; }
+h1, h2, h3, h4 { letter-spacing: -0.012em; text-wrap: balance; }
+.mono, .stamp, .count, .zoom-label, .stats td, .stats th, .bars .n, .bars .wk, .badge, .chip, .s-ago { font-variant-numeric: tabular-nums; }
+
+/* focus: always visible for keyboard users, never for mouse clicks */
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-sm); }
+.filter:focus, .search input:focus, .sessions-modal .session-search:focus { outline: none; }
+.filter:focus-visible, .search input:focus-visible, .sessions-modal .session-search:focus-visible,
+.next-input:focus-visible, .discover-input:focus-visible, .blocked-edit input:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 1px;
+  border-color: var(--accent);
+}
+
+/* controls */
+button, .filter, .search input, .poll, .days, .waiting select, .next-input, .discover-input {
+  transition: background-color var(--t-fast) var(--ease-out), border-color var(--t-fast) var(--ease-out),
+    color var(--t-fast) var(--ease-out), transform var(--t-fast) var(--ease-out), box-shadow var(--t-fast) var(--ease-out);
+}
+button { border-radius: var(--r-sm); font-weight: 500; box-shadow: var(--shadow-1); }
+button:hover:not(:disabled) { background: var(--surface-2); border-color: var(--border-strong); }
+button:active:not(:disabled) { transform: scale(0.98); }
+button.primary { box-shadow: none; }
+button.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 88%, white); border-color: transparent; }
+button.link, button.link:hover:not(:disabled) { background: none; border: 0; box-shadow: none; }
+button.link:hover:not(:disabled) { text-decoration: underline; text-underline-offset: 0.2em; }
+button.danger:hover:not(:disabled) { background: var(--danger); }
+.filter, .search input, .poll, .days, .waiting select, .next-input, .discover-input, .blocked-edit input { border-radius: var(--r-sm); background: var(--bg); }
+
+/* top bar: sticky, translucent over what scrolls beneath */
+.bar { z-index: var(--z-bar); background: color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter: blur(10px) saturate(1.2); -webkit-backdrop-filter: blur(10px) saturate(1.2); }
+.bar h1 { letter-spacing: -0.01em; }
+
+/* section titles: quieter than all-caps */
+section h2 { text-transform: none; letter-spacing: -0.005em; font-size: 0.95rem; color: var(--text); font-weight: 600; }
+section h2 .path { color: var(--muted); font-weight: 400; }
+
+/* surfaces: containers softer than the controls inside them, one light source */
+.card, .ticket, .detail, .graph-scroll, .session, .tidy { border-radius: var(--r-lg); }
+.card, .ticket, .detail, .session { box-shadow: var(--shadow-1); transition: border-color var(--t-med) var(--ease-out), box-shadow var(--t-med) var(--ease-out), transform var(--t-med) var(--ease-out); }
+.card:hover, .ticket:hover, .session:hover { border-color: var(--border-strong); }
+.gnode, .dag-node, .banner, .wip, .done-warning, .discoveries { border-radius: var(--r-md); }
+.markdown pre, .cleanup .restore, .cleanup .ack, .markdown code { border-radius: var(--r-md); }
+
+/* badges and chips: small rounded squares read as labels, not pills */
+.badge, .chip, .pr, .new-badge { border-radius: var(--r-sm); font-weight: 500; }
+.chip { line-height: 1.35rem; }
+
+/* tabs and view switch as a segmented control */
+.tabs { gap: 0.15rem; padding: 0.2rem; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md); }
+.tabs button { box-shadow: none; border-radius: var(--r-sm); }
+.tabs button:hover:not(:disabled) { background: var(--surface-3); border-color: transparent; }
+.tabs button.active { background: var(--panel); border-color: var(--border-strong); box-shadow: var(--shadow-1); }
+.views { align-items: center; align-self: center; gap: 0.15rem; padding: 0.2rem; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md); }
+.views button, .views button:first-child, .views button:last-child { align-self: center; height: auto; border: 1px solid transparent; border-radius: var(--r-sm); box-shadow: none; background: transparent; }
+.views button:hover:not(:disabled) { background: var(--surface-3); border-color: transparent; }
+.views button.active, .views button.active:hover:not(:disabled) { background: var(--accent); border-color: transparent; color: var(--on-accent); box-shadow: var(--shadow-1); }
+
+/* modals: scrim fades, panel rises in (transform and opacity only) */
+.overlay { z-index: var(--z-overlay); background: rgb(6 9 14 / 0.62); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); animation: overlay-in var(--t-med) var(--ease-out); }
+.modal { border-radius: var(--r-lg); border-color: var(--border-strong); background: var(--panel); box-shadow: var(--shadow-2); animation: modal-in var(--t-med) var(--ease-out); }
+@keyframes overlay-in { from { opacity: 0; } }
+@keyframes modal-in { from { opacity: 0; transform: translateY(8px) scale(0.985); } }
+
+/* stats bars */
+.bars .bar { border-radius: 0.2rem 0.2rem 0 0; transition: filter var(--t-fast) var(--ease-out); }
+.bars li:hover .bar { filter: brightness(1.15); }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+}

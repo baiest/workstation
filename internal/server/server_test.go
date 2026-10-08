@@ -275,7 +275,7 @@ func TestSecurityHeadersOnEveryResponse(t *testing.T) {
 			t.Errorf("%s: Cross-Origin-Resource-Policy = %q", name, hd.Get("Cross-Origin-Resource-Policy"))
 		}
 		csp := hd.Get("Content-Security-Policy")
-		for _, want := range []string{"default-src 'none'", "script-src 'self'", "frame-ancestors 'none'", "base-uri 'none'", "form-action 'none'", "connect-src 'self'"} {
+		for _, want := range []string{"default-src 'none'", "script-src 'self'", "frame-ancestors 'none'", "base-uri 'none'", "form-action 'none'", "connect-src 'self'", "font-src 'self'"} {
 			if !strings.Contains(csp, want) {
 				t.Errorf("%s: CSP lacks %q: %s", name, want, csp)
 			}

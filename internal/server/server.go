@@ -142,8 +142,9 @@ func New(build BuildFunc, launcher Launcher, web fs.FS, opts ...Option) http.Han
 
 // csp: scripts only from the app itself; no framing, no forms, no base tag.
 // Styles allow inline because Vue sets element styles; that does not execute code.
+// Fonts are bundled into the binary, so they come from the app itself and nowhere else.
 const csp = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
-	"img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+	"img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 
 func setSecurityHeaders(h http.Header) {
 	h.Set("Content-Security-Policy", csp)
