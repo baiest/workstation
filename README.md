@@ -3,24 +3,36 @@
 [![ci](https://github.com/baiest/workstation/actions/workflows/ci.yml/badge.svg)](https://github.com/baiest/workstation/actions/workflows/ci.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**Mission control for your Git worktrees and Claude Code sessions.**
+**Mission control for working on many tickets with many Claude Code sessions at once.**
 
-If you run several Claude Code sessions in parallel, each in its own `git worktree`, it is easy to lose track of
-which worktree belongs to which session, what state each one is in, which branches depend on which, and which
-have a pull request. `workstation` puts that on one page, served from a single local binary. No cloud, no
-accounts, no database.
+If you run several Claude Code sessions in parallel, each in its own `git worktree`, the hard part is not Git: it is
+remembering *what you are doing, what waits for you, what is blocked, what turned up on the side, and what can be
+closed*. `workstation` keeps that on one page, served from a single local binary. No cloud, no accounts, no database.
 
-For every worktree it shows the repository, branch, path, Git state (staged / modified / untracked / conflicts,
+The unit of work is the **ticket**. Everything about it that Git and Claude already know (branches, worktrees, PRs,
+sessions, their state) is read automatically; the few things only you can say (is it active, parked or blocked? what is
+the next step? what do I do with this discovery?) are the only things it stores.
+
+- **Tickets** (the main page) — every ticket across your projects in sections: *Needs you*, *Active* (with a soft limit of
+  3), *Blocked* (with why and what it waits for), *Ready*, *Ready to close*, *Inbox* (spotted from a branch, nobody decided
+  yet), *Parked*, *Backlog*, *Old, undecided*, *Done*, *Ignored*. Each card carries its **next step**, its **discoveries**
+  (things that came up and are not part of the ticket), a link to your tracker, and its worktrees with PR, git and Claude
+  state. From a card you can **start Claude** on it (creating its worktree when needed) or open a read-only **review**.
+- **Dependencies** — which ticket waits for which, and what can be unblocked.
+- **Stats** — where time went, how much you carried at once, how many tickets were finished, what became of discoveries.
+- **Repos** — the older per-project view: worktrees as cards in lanes, and the branch graph.
+- **Claude commands** — `workstation discover "…"`, `workstation next "…"` and `workstation ticket` let a session park side
+  findings and leave a handoff without leaving the terminal ([docs/claude-snippet.md](docs/claude-snippet.md)).
+
+For every worktree it also shows the repository, branch, path, Git state (staged / modified / untracked / conflicts,
 ahead / behind), last commit, and the linked Claude session (status, last activity, title, last message).
 
-- **Worktrees** — every worktree of every repo, with its Claude session and PR status.
+- **Worktrees** (Repos view) — every worktree of every repo, with its Claude session and PR status.
 - **Active now** — one row per Claude session that is live or was touched in the last 24 h, across all worktrees, most urgent first (waiting for you, failed, working), with the worktree, branch and ticket it works in.
 - **Plan button** — read the plan a Claude session produced, rendered as Markdown.
 - **Branch graph** — the active branches of a repo as a tree: which depends on which, with PR status
   (open / draft / merged / declined), approvals, review state and checks. Zoom (buttons, **Ctrl + wheel**, *Fit*) and
   search (branch, worktree, PR title or `#number`; **Enter** jumps to the next match).
-- **Tickets tab** — everything of a ticket (`REG-5393`) in one place: its branches, worktree folders, PRs, git state
-  and Claude sessions, one row per branch. Answers "which worktree is for which branch and PR".
 - **Readable worktree cards** — titled by the PR title (else the branch) with a ticket badge, the folder as its own row,
   ordered by what needs attention (live Claude, uncommitted changes, open PR) with merged ones last, and a
   "merged · removable" hint. Branches with a commit in the last 3 days glow in the graph.
@@ -28,8 +40,8 @@ ahead / behind), last commit, and the linked Claude session (status, last activi
   ([details](#branch-cleanup)).
 - **Worktree cleanup** — one button removes worktree folders whose PR merged and that hold nothing else
   ([details](#worktree-cleanup)).
-- **Hide projects** you do not care about (**Hide** next to the project name; restore them from "Hidden projects").
-  Remembered in the browser; hidden projects are not queried for PRs.
+- **Hide projects** you do not care about (**Hide** in the Repos view, restore from "Hidden projects"). Remembered in
+  the browser. Their branch graph is not loaded; the server still reads their PR cache.
 - **UI size** with **A−** / **A+** in the header (also browser zoom).
 - **Pull requests** from GitHub, Bitbucket Cloud and Bitbucket Server / Data Center.
 - **Actions** — open a worktree in a terminal or Cursor / VS Code, or resume its Claude session.
@@ -80,11 +92,13 @@ workstation                                   # http://127.0.0.1:7420
 workstation -addr 127.0.0.1:8000              # another port (loopback addresses only)
 workstation -config ~/.workstation.json       # config file (optional)
 workstation -cache-dir ""                     # do not keep pull request data on disk (default: user cache dir)
+workstation -tickets-file ""                  # keep tickets in memory only (default: <user config dir>/workstation/tickets.json)
 workstation -version
 ```
 
-Open the URL and press **Refresh** (or `r`). `/` focuses the filter, `Esc` clears it. Data is recomputed on every
-refresh; there is no polling or WebSocket.
+Open the URL and press **Refresh** (or `r`). `/` focuses the filter, `Esc` clears it. The page re-reads Claude's state
+every 10, 30 or 60 s (your choice, a cheap call that skips `git status`) and everything else every fifth time or on
+**Refresh**; there is no WebSocket.
 
 ### Keep it running on macOS (optional, untested)
 
@@ -131,7 +145,9 @@ redirect it.
   "forges": [
     { "host": "bitbucket.org", "type": "bitbucket-cloud", "userEnv": "BITBUCKET_USER", "tokenEnv": "BITBUCKET_TOKEN" },
     { "host": "bb.mycorp.com", "type": "bitbucket-server", "tokenEnv": "BB_SERVER_TOKEN", "baseUrl": "https://bb.mycorp.com" }
-  ]
+  ],
+  "ticketLink": "https://tracker.example.com/browse/{key}",
+  "ticketPattern": "(?:^|/)([A-Za-z][A-Za-z0-9]{1,9}-[0-9]{1,7})(?:[^A-Za-z0-9]|$)"
 }
 ```
 
@@ -139,31 +155,94 @@ Repositories are discovered automatically from the working directories of Claude
 repositories to show even if no Claude session ever ran in them. `forges` is only needed for Bitbucket (see
 [Pull requests](#pull-requests)); secrets are **never** stored in this file, only the names of environment variables.
 
+`ticketLink` turns a ticket key into a link to *your* tracker, whichever it is (Jira, GitHub Issues, Trello, Taiga...);
+workstation never calls that address, it only shows the link (you can also paste one per ticket). `ticketPattern` says
+what a key looks like in a branch name: a regular expression with exactly one capture group, the key (default:
+Jira-style `REG-123`). A branch without a key is its own ticket, named after the branch.
+
 ## Organizing your work
 
-The Worktrees tab is a board. Every stage is **derived** from data the tool already reads; you do not classify anything.
+### Tickets
 
-| Lane | A worktree is here when... |
+A ticket is named by its **key** when a branch (or worktree folder) has one (`feature/REG-5393-x` is `REG-5393`), else by
+the **branch** itself. Several branches and worktrees with the same key are one ticket.
+
+What workstation stores per ticket (the only data it writes, `<user config dir>/workstation/tickets.json`, private to
+your user, written atomically, bounded):
+
+| Field | Meaning |
 |---|---|
-| **Needs you** | Claude waits for your reply or may need approval, an error happened in the last 24 h, the PR has requested changes or failing checks, or git has conflicts |
-| **In progress** | none of the others: Claude working, uncommitted changes, a draft PR, recent commits |
-| **In review** | its PR is open and not a draft |
-| **Done** | its PR was merged or closed: safe to clean up |
-| **Dormant** | no PR, nothing uncommitted, no live Claude and no activity for 14 days (collapsed by default; nothing is deleted) |
+| **state** | `inbox` (no decision), `backlog`, `ready`, `active`, `parked`, `blocked`, `done`, `ignored` |
+| **next step** | the handoff: what to do first next time (≤ 1000 characters) |
+| **blocked reason / waits for** | why it is blocked, and which other tickets it cannot go on without (loops are refused) |
+| **discoveries** | one-line findings that are not part of the ticket, waiting for a decision |
+| **link** | the ticket in your tracker |
+| **history** | every change of state, for the Stats page |
 
-- **Focus**: the star on a card moves it to a Focus strip above the lanes. A soft warning appears when more than 3
-  worktrees are in progress or need you. It never blocks anything.
-- **Where I left off**: one line per worktree (click the note, Enter saves, Esc cancels).
-- **Tidy up** bar: counts of merged worktrees, dormant ones and branches that can be deleted, linking to the existing
-  cleanup dialogs (nothing is removed without a preview).
-- **Active now**: live or recent sessions across all worktrees, most urgent first.
-- **Notify** (off by default): a browser notification when a session starts waiting for you, needs approval or fails
-  while the tab is in the background. The tab title shows `(2) workstation` with how many wait for you. The page
-  refreshes Claude states every 30 s.
+Everything else is derived, never typed in: the section a ticket is in, "Needs you", "Ready to close" (every PR merged),
+"Old, undecided" (no decision and nothing happening for 14 days), the work-in-progress warning (more than 3 `active`).
 
-Stars and notes are the **only data workstation writes**: `<user config dir>/workstation/notes.json` (`-notes-file`
-to change, empty keeps them in memory), private to your user (0600), at most 500 entries of 200 characters, written
-atomically. A note is dropped when its worktree is removed from the dashboard.
+### What "needs you" means (one rule everywhere)
+
+The chips in the header, the tab title, notifications, *Active now*, the *Needs you* section and the ordering all use the
+same rule per session:
+
+| Kind | When |
+|---|---|
+| **asks you** | Claude finished its turn and its last words end in `?` (a guess) |
+| **may need approval** | a tool request has had no result for a while (a guess) |
+| **failed** | an API error was the last thing recorded, in the last 24 h |
+| **review** | Claude finished its turn: there is something to look at |
+| **working** | thinking or running a tool: not waiting for you |
+| **stale** | alive and waiting for more than 2 h: nobody is coming back. It stops counting as "needs you"; finish with it and close it, or **Dismiss** it |
+
+A PR with requested changes or failing checks, and git conflicts, also put a ticket in *Needs you*.
+
+### Discoveries
+
+When Claude (or you) notices something that is not part of the ticket, it is **noted, not fixed**: `workstation discover
+"…"` from the worktree, a `DISCOVERY:` line in the reply (picked up from the transcript), or **+ discovery** on the card.
+Each one waits for three possible decisions: **Drop**, **In scope** (it is part of the ticket after all), or **New
+ticket**, which is always created *parked*: a discovery never becomes active work by itself. Finishing a ticket with
+undecided discoveries warns you, it does not stop you.
+
+### Starting and reviewing
+
+**Start Claude** on a ticket opens a terminal on its worktree (an existing one; or its existing branch in a new
+worktree under `<repo>/.claude/worktrees/`; or a new branch from the default branch) with a first message built from the
+ticket: its next step, discoveries decided to be in scope, discoveries *not* to work on, and how to use `workstation
+discover/next`. It makes the ticket active, and asks first if that goes past 3 active. Blocked, done and ignored tickets
+are not started. **Review** opens a session told to be read-only and to report bugs, missing tests and what looks right.
+
+### A daily method that fits this
+
+1. **Morning, 5 minutes**: look at *Needs you*, then decide what is *Active* (at most 3). Park the rest on purpose.
+2. **One session per ticket**, started from the card, from its next step. Do not open one without a next step, nor for a
+   discovery: note it.
+3. **Work in batches**: answer what *asks you*, then look at *review*, instead of reacting to each notification.
+4. **Before closing a session**: its result must be in a commit, a PR or the next step (`workstation next`). Close
+   sessions that are *stale*.
+5. **Triage discoveries when you finish a ticket**: Drop or New ticket (parked). Almost never *In scope*.
+6. **Coming back after days**: open the page, read the next step of *Active* and *Blocked*, unblock what stopped
+   waiting, and start a fresh session from the next step (resume only if it was hours ago).
+7. When a PR merges the ticket appears in *Ready to close*: mark it done, then use the cleanup dialogs.
+
+### Notifications
+
+**Notify** (off by default) shows a browser notification when a session starts waiting for you, may need approval or
+fails while the tab is in the background. The tab title shows `(2) workstation` with how many need you.
+
+### The Repos view
+
+Per project, **Worktrees** shows each worktree as a card in a derived lane: *Needs you*, *In progress*, *In review* (open
+non-draft PR), *Done* (PR merged or closed: safe to clean up), *Dormant* (no PR, clean, no live Claude, 14 days quiet).
+The **Tidy up** bar counts what the cleanup dialogs below could remove; nothing is removed without a preview.
+
+### Old stars and notes
+
+Earlier versions kept a star and a one-line note per worktree in `notes.json`. On first run they are copied once into
+tickets (a star becomes *active*, a note becomes the *next step*); after that the file is only read for removing the
+leftover note of a removed worktree.
 
 ## Where the data comes from
 
@@ -402,6 +481,9 @@ for the threat model and how to report a problem.
   `Referrer-Policy: no-referrer`.
 - Actions only accept worktree paths and session ids present in the last computed workspace; session ids must match
   `[A-Za-z0-9_-]+`; the directory must exist, be absolute and contain no control characters.
+- Start / review: only for a ticket (repo plus ref) or a worktree the last workspace knows. The first message is built on
+  the server from stored data; the page never supplies it. New worktrees are created with `git worktree add --no-track`
+  below `<repo>/.claude/worktrees/`, with a branch name made of the key and a slug of the title (never from the page).
 - Terminal: Windows starts `powershell.exe -NoExit` in a new console with the directory as its **working directory**
   (never through `cmd.exe`, which would re-parse `&`, `%`, `^` in a path); macOS `open -a Terminal` / `osascript` with
   the path quoted. Editor: `cursor`, else `code`, if on PATH (button hidden otherwise); a `.cmd` shim refuses paths
@@ -414,7 +496,7 @@ for the threat model and how to report a problem.
   setting. The macOS side is unverified.
 - git runs with `core.fsmonitor`, hooks and the pager disabled (a repo's own config can name commands), a 30 s timeout
   that kills the whole process tree, and branch names always qualified as `refs/heads/...`. `gh` has a 25 s timeout.
-- The only destructive action is branch cleanup (see [Branch cleanup](#branch-cleanup)): local branches only,
+- The only destructive actions are branch and worktree cleanup (see [Branch cleanup](#branch-cleanup)): local branches only,
   re-verified server-side, with the previewed commit as a compare-and-delete guard.
 - Local files are read with size limits (1 MiB for JSON, 1 MiB per transcript line), and a symlink in `plans/` is
   not served as a plan.
@@ -433,7 +515,9 @@ make test lint
 cmd/workstation/      main: wiring, flags
 internal/gitx/        git CLI wrapper + porcelain parsers
 internal/claude/      ClaudeSessionProvider: CLI + Desktop readers, merge, pid check, plan files
-internal/workspace/   discovery + session<->worktree join
+internal/workspace/   discovery + session<->worktree join, PRs and ticket per worktree
+internal/tickets/     the ticket store (state, next step, discoveries), ticket keys, branch names
+internal/cli/         `workstation discover|next|ticket`
 internal/forge/       pull requests: GitHub (gh), Bitbucket Cloud, Bitbucket Server
 internal/branches/    branch dependency graph + cached PR lookups
 internal/server/      HTTP API (/api/workspace, /plan, /branches, /actions), security guard, launcher
