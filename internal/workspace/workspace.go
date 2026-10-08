@@ -332,6 +332,10 @@ func isCaseInsensitiveOS() bool {
 	return runtime.GOOS == "windows" || runtime.GOOS == "darwin"
 }
 
+// SamePath reports whether two paths name the same folder, whatever the
+// separators, trailing slashes or (on Windows and macOS) letter case.
+func SamePath(a, b string) bool { return normalize(a) == normalize(b) }
+
 // normalize makes paths comparable across separators, trailing slashes and
 // (on Windows/macOS) letter case.
 func normalize(p string) string {

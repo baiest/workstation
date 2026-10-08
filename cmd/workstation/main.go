@@ -11,6 +11,7 @@ import (
 
 	"workstation/internal/branches"
 	"workstation/internal/claude"
+	"workstation/internal/cli"
 	"workstation/internal/config"
 	"workstation/internal/forge"
 	"workstation/internal/notes"
@@ -25,6 +26,10 @@ import (
 var version = "dev"
 
 func main() {
+	// `workstation discover|next|ticket` talk to a running workstation from inside a worktree.
+	if len(os.Args) > 1 && cli.IsCommand(os.Args[1]) {
+		os.Exit(cli.Run(os.Args[1:], cli.DefaultEnv()))
+	}
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	addr := flag.String("addr", "127.0.0.1:7420", "listen address; must be a loopback address (the server has no authentication)")
 	cfgPath := flag.String("config", config.DefaultPath(), "optional config file")

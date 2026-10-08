@@ -364,3 +364,5 @@ button.danger:hover:not(:disabled) { background: var(--danger); border-color: va
 .ticket-actions button:not(.link) { font-size: 0.82rem; padding: 0.15rem 0.7rem; }
 .ticket-actions .spacer { flex: 1; }
 .ticket-actions .discover-input { flex: 0 1 22rem; }
+.done-warning { margin: 0 0 0.4rem; padding: 0.35rem 0.7rem; border-radius: 0.45rem; background: color-mix(in srgb, var(--unknown) 14%, transparent); color: var(--unknown); font-size: 0.9rem; }
+.done-warning button:not(.link) { margin-left: 0.4rem; font-size: 0.82rem; padding: 0.1rem 0.6rem; }

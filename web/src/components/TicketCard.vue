@@ -79,7 +79,14 @@ function addDiscovery() {
 const blocking = ref(false)
 const reasonDraft = ref('')
 const reasonInput = ref<HTMLInputElement | null>(null)
+// finishing a ticket with discoveries nobody decided on: a warning, never a block
+const confirmingDone = ref(false)
 async function choose(state: TicketState) {
+  confirmingDone.value = false
+  if (state === 'done' && t.value.openDiscoveries.length) {
+    confirmingDone.value = true
+    return
+  }
   if (state === 'blocked') {
     reasonDraft.value = t.value.blockedReason
     blocking.value = true
@@ -141,6 +148,12 @@ function confirmBlock() {
       <button data-blocked-save @click="confirmBlock">Block</button>
       <button class="link" @click="blocking = false">Cancel</button>
     </div>
+
+    <p v-if="confirmingDone" class="done-warning" data-done-warning>
+      {{ t.openDiscoveries.length }} discover{{ t.openDiscoveries.length === 1 ? 'y' : 'ies' }} still undecided. Drop, scope or promote them, or finish anyway:
+      <button data-done-anyway @click="confirmingDone = false; emit('state', t, 'done')">Done anyway</button>
+      <button class="link" @click="confirmingDone = false">Not yet</button>
+    </p>
 
     <ul v-if="t.openDiscoveries.length" class="discoveries" data-discoveries>
       <li v-for="d in t.openDiscoveries" :key="d.id" class="discovery" :data-discovery="d.id">

@@ -58,7 +58,7 @@ func resolveTarget(ws workspace.Workspace, t ticketTarget) (repo, ref string, er
 	if t.Worktree != "" {
 		for _, r := range ws.Repos {
 			for _, w := range r.Worktrees {
-				if w.Path == t.Worktree {
+				if workspace.SamePath(w.Path, t.Worktree) {
 					if w.Ticket == "" {
 						return "", "", badRequest("this worktree has no branch to name a ticket after")
 					}
@@ -102,6 +102,56 @@ func replyTicket(w http.ResponseWriter, t tickets.Ticket, err error) {
 		return
 	}
 	writeJSON(w, t)
+}
+
+// currentTicket is what a session needs to know when it starts: which ticket the
+// worktree it works in belongs to, and what was decided about it.
+type currentTicket struct {
+	Ref           string              `json:"ref"`
+	Repo          string              `json:"repo"`
+	Branch        string              `json:"branch"`
+	State         string              `json:"state"`
+	Title         string              `json:"title,omitempty"`
+	NextStep      string              `json:"nextStep,omitempty"`
+	BlockedReason string              `json:"blockedReason,omitempty"`
+	Discoveries   []tickets.Discovery `json:"discoveries"` // the open ones
+}
+
+func (s *Server) handleTicketCurrent(w http.ResponseWriter, r *http.Request) {
+	if s.tickets == nil {
+		http.NotFound(w, r)
+		return
+	}
+	ws, err := s.snapshot()
+	if err != nil {
+		internalError(w, "ticket", err)
+		return
+	}
+	repo, ref, err := resolveTarget(ws, ticketTarget{Worktree: r.URL.Query().Get("worktree")})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	out := currentTicket{Ref: ref, Repo: repo, State: "inbox", Discoveries: []tickets.Discovery{}}
+	for _, rp := range ws.Repos {
+		for _, wt := range rp.Worktrees {
+			if rp.Path == repo && wt.Ticket == ref && out.Branch == "" {
+				out.Branch = wt.Branch
+			}
+		}
+	}
+	if t, ok := s.tickets.Get(tickets.ID(repo, ref)); ok {
+		out.Title, out.NextStep, out.BlockedReason = t.Title, t.NextStep, t.BlockedReason
+		if t.State != tickets.StateInbox {
+			out.State = string(t.State)
+		}
+		for _, d := range t.Discoveries {
+			if d.Status == tickets.DiscoveryOpen {
+				out.Discoveries = append(out.Discoveries, d)
+			}
+		}
+	}
+	writeJSON(w, out)
 }
 
 type ticketUpdateRequest struct {

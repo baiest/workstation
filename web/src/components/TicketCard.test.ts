@@ -86,6 +86,21 @@ describe('TicketCard', () => {
     expect(w.emitted('triage')!.map((e) => [e[1], e[2]])).toEqual([['a', 'promote'], ['a', 'in-scope'], ['a', 'drop']])
   })
 
+  it('warns, without blocking, before finishing a ticket with undecided discoveries', async () => {
+    const d = { id: 'a', text: 'later', source: 'cli' as const, status: 'open' as const, at: '2026-10-02T10:00:00Z' }
+    const w = render(ticket({ state: 'active', discoveries: [d] }))
+    await w.get('[data-state=done]').trigger('click')
+    expect(w.emitted('state')).toBeUndefined()
+    expect(w.get('[data-done-warning]').text()).toContain('1 discovery still undecided')
+    await w.get('[data-done-anyway]').trigger('click')
+    expect(w.emitted('state')![0]).toEqual([expect.objectContaining({ ref: 'REG-1' }), 'done'])
+    expect(w.find('[data-done-warning]').exists()).toBe(false)
+
+    const clean = render(ticket({ state: 'active' }))
+    await clean.get('[data-state=done]').trigger('click')
+    expect(clean.emitted('state')![0][1]).toBe('done') // nothing pending: no warning
+  })
+
   it('adds a discovery with Enter, ignoring an empty one', async () => {
     const w = render(ticket())
     await w.get('[data-add-discovery]').trigger('click')
