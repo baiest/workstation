@@ -38,12 +38,14 @@ export interface Ticket {
   nextStep: string
   blockedReason: string
   blockedBy: string[] // ids of the tickets it waits for
+  link: string // where it lives in the user's tracker (stored, else built from the key), or ""
   openDiscoveries: Discovery[]
 }
 
 export interface BuildOptions {
   repo?: string // path of the repo, to pick its stored tickets
   stored?: Record<string, StoredTicket>
+  linkTemplate?: string // "https://tracker.example.com/browse/{key}"
   now?: Date
 }
 
@@ -61,6 +63,12 @@ export function fallbackRef(branch?: string, folder?: string): string {
   if (key) return key
   if (branch) return `branch:${branch.replaceAll('|', '_')}`
   return folder ? `folder:${folder.replaceAll('|', '_')}` : ''
+}
+
+/** The link to a ticket in the user's tracker: the one written by hand, else the template filled with its key. */
+export function linkOf(stored: StoredTicket | undefined, ref: string, template?: string): string {
+  if (stored?.link) return stored.link
+  return template && isKeyRef(ref) ? template.replaceAll('{key}', encodeURIComponent(ref)) : ''
 }
 
 /** A ref that is a tracker key rather than a branch, folder or note ref. */
@@ -161,6 +169,7 @@ export function buildTickets(worktrees: Worktree[], nodes: BranchNode[], default
       nextStep: stored?.nextStep ?? '',
       blockedReason: stored?.blockedReason ?? '',
       blockedBy: stored?.blockedBy ?? [],
+      link: linkOf(stored, ref, opts.linkTemplate),
       openDiscoveries: (stored?.discoveries ?? []).filter((d) => d.status === 'open'),
     }
   })

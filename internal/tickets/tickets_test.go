@@ -381,3 +381,32 @@ func TestARefusedUpdateChangesNothing(t *testing.T) {
 		t.Fatalf("the rest of a refused update must not apply: %+v", a)
 	}
 }
+
+func TestLinkMustBeAnHTTPAddress(t *testing.T) {
+	s, _ := newStore(t)
+	got, err := s.Apply(Update{Repo: "/r", Ref: "REG-1", Link: sp("  https://tracker.example.com/browse/REG-1  ")})
+	if err != nil || got.Link != "https://tracker.example.com/browse/REG-1" {
+		t.Fatalf("%+v %v", got, err)
+	}
+	for name, bad := range map[string]string{
+		"javascript": "javascript:alert(1)",
+		"data":       "data:text/html,x",
+		"relative":   "/browse/REG-1",
+		"no host":    "https:///x",
+		"spaces":     "https://x.example.com/a b",
+		"too long":   "https://x.example.com/" + strings.Repeat("a", MaxLink),
+	} {
+		if _, err := s.Apply(Update{Repo: "/r", Ref: "REG-1", Link: sp(bad)}); err == nil {
+			t.Errorf("%s: expected an error", name)
+		}
+	}
+	if kept, _ := s.Get("/r|REG-1"); kept.Link != "https://tracker.example.com/browse/REG-1" {
+		t.Fatalf("a refused link must not replace the stored one: %+v", kept)
+	}
+	if cleared, _ := s.Apply(Update{Repo: "/r", Ref: "REG-1", Link: sp("")}); cleared.Link != "" {
+		t.Fatal("an empty link clears it")
+	}
+	if _, ok := s.Get("/r|REG-1"); ok {
+		t.Fatal("a ticket with nothing left is not kept")
+	}
+}

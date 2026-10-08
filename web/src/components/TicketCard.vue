@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue'
 import { stateActions } from '../board'
-import { relativeTime } from '../format'
+import { relativeTime, safeHref } from '../format'
 import type { Ticket } from '../tickets'
 import type { Attention } from '../attention'
 import type { TriageAction } from '../api'
@@ -35,6 +35,7 @@ const emit = defineEmits<{
   start: [ticket: Ticket]
   review: [ticket: Ticket]
   depend: [ticket: Ticket, ids: string[]]
+  link: [ticket: Ticket, url: string]
 }>()
 
 const t = computed(() => props.ticket)
@@ -52,6 +53,7 @@ const signalText: Partial<Record<Attention, [string, string]>> = {
   working: ['working', 'Claude is thinking or running a tool'],
   stale: ['stale session', 'Claude has waited for hours. Take what you need and close that session'],
 }
+const href = computed(() => safeHref(t.value.link))
 const signal = computed(() => signalText[t.value.signal])
 const summary = computed(() => {
   const wts = t.value.items.filter((i) => i.worktree).length
@@ -68,6 +70,22 @@ function addDependency(id: string) {
 }
 const dropDependency = (id: string) =>
   emit('depend', t.value, t.value.blockedBy.filter((x) => x !== id))
+
+// the link to the user's tracker: whichever one it is, workstation only keeps the address
+const editingLink = ref(false)
+const linkDraft = ref('')
+const linkInput = ref<HTMLInputElement | null>(null)
+async function editLink() {
+  linkDraft.value = t.value.stored?.link ?? ''
+  editingLink.value = true
+  await nextTick()
+  linkInput.value?.focus()
+}
+function saveLink() {
+  if (!editingLink.value) return
+  editingLink.value = false
+  if (linkDraft.value.trim() !== (t.value.stored?.link ?? '')) emit('link', t.value, linkDraft.value)
+}
 
 // next step: click to edit, Ctrl/Cmd+Enter or leaving the box saves, Esc cancels
 const editingNext = ref(false)
@@ -135,6 +153,7 @@ function confirmBlock() {
       <h3 class="clip" :title="t.title">{{ t.title }}</h3>
       <span v-if="repoName" class="badge repo-badge" :title="t.repo">{{ repoName }}</span>
       <span v-if="signal" class="badge signal" :class="`signal-${t.signal}`" :title="signal[1]">{{ signal[0] }}</span>
+      <a v-if="href" class="tracker-link" data-link :href="href" target="_blank" rel="noopener noreferrer" title="Open in your tracker" @click.stop>↗ tracker</a>
       <span v-if="closedPrs" class="badge merged-hint" title="Every PR of this ticket is merged">all merged</span>
       <span class="summary muted">{{ summary }}</span>
     </header>
@@ -241,7 +260,20 @@ function confirmBlock() {
         @keydown.esc.prevent="discovering = false"
         @blur="addDiscovery"
       />
-      <button v-else class="link" data-add-discovery title="Note something that is out of scope, to decide on later" @click="startDiscover">+ discovery</button>
+      <input
+        v-if="editingLink"
+        ref="linkInput"
+        v-model="linkDraft"
+        data-link-input
+        class="discover-input"
+        maxlength="500"
+        placeholder="https://… the issue or card of this ticket (empty to remove)"
+        @keydown.enter.prevent="saveLink"
+        @keydown.esc.prevent="editingLink = false"
+        @blur="saveLink"
+      />
+      <button v-else class="link" data-edit-link title="Where this ticket lives in your tracker" @click="editLink">{{ t.stored?.link ? 'edit link' : '+ link' }}</button>
+      <button v-if="!discovering" class="link" data-add-discovery title="Note something that is out of scope, to decide on later" @click="startDiscover">+ discovery</button>
       <button v-if="t.items.length" class="link" data-toggle-rows :aria-expanded="rowsOpen" @click="rowsOpen = !rowsOpen">
         {{ rowsOpen ? 'Hide work' : 'Show work' }}
       </button>

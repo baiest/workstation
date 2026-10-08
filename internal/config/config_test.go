@@ -63,3 +63,29 @@ func TestLoad(t *testing.T) {
 		}
 	})
 }
+
+func TestTicketLinkAndPattern(t *testing.T) {
+	dir := t.TempDir()
+	load := func(body string) (Config, error) {
+		p := filepath.Join(dir, "t.json")
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return Load(p)
+	}
+
+	c, err := load(`{"ticketLink":"https://tracker.example.com/browse/{key}","ticketPattern":"(?:^|/)gh-([0-9]+)"}`)
+	if err != nil || c.TicketLink != "https://tracker.example.com/browse/{key}" || c.TicketPattern == "" {
+		t.Fatalf("got %+v %v", c, err)
+	}
+	for name, body := range map[string]string{
+		"no key placeholder": `{"ticketLink":"https://tracker.example.com/browse/"}`,
+		"not http":           `{"ticketLink":"javascript:alert('{key}')"}`,
+		"no host":            `{"ticketLink":"https:///{key}"}`,
+		"ftp":                `{"ticketLink":"ftp://x.example.com/{key}"}`,
+	} {
+		if _, err := load(body); err == nil {
+			t.Errorf("%s: expected an error", name)
+		}
+	}
+}

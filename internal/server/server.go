@@ -35,6 +35,7 @@ type Server struct {
 	tickets         TicketStore
 	keyer           tickets.Keyer
 	git             GitOps
+	linkTemplate    string
 
 	mu     sync.Mutex
 	last   *workspace.Workspace // snapshot actions are validated against
@@ -53,6 +54,7 @@ type options struct {
 	tickets         TicketStore
 	keyer           tickets.Keyer
 	git             GitOps
+	linkTemplate    string
 }
 
 // PlanReader loads a session's plan by slug (implemented by claude.CLI).
@@ -115,7 +117,7 @@ func New(build BuildFunc, launcher Launcher, web fs.FS, opts ...Option) http.Han
 	if o.git == nil {
 		o.git = realGit{}
 	}
-	s := &Server{build: build, launcher: launcher, web: web, plans: o.plans, branches: o.branches, cleanup: o.cleanup, worktreeCleanup: o.worktreeCleanup, notes: o.notes, tickets: o.tickets, keyer: o.keyer, git: o.git}
+	s := &Server{build: build, launcher: launcher, web: web, plans: o.plans, branches: o.branches, cleanup: o.cleanup, worktreeCleanup: o.worktreeCleanup, notes: o.notes, tickets: o.tickets, keyer: o.keyer, git: o.git, linkTemplate: o.linkTemplate}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/worktree-cleanup", s.handleWorktreeCleanupPreview)
 	mux.HandleFunc("POST /api/worktree-cleanup", s.handleWorktreeCleanupRemove)

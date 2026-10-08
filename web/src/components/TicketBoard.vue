@@ -23,6 +23,7 @@ const emit = defineEmits<{
   start: [ticket: Ticket]
   review: [ticket: Ticket]
   depend: [ticket: Ticket, ids: string[]]
+  link: [ticket: Ticket, url: string]
 }>()
 
 const sections = computed(() => groupTickets(props.tickets, props.now))
@@ -78,6 +79,7 @@ const toggle = (s: SectionId) => (open[s] = !isOpen(s))
           :unblockable="canUnblock(t, byId)"
           :candidates="candidates"
           @depend="(t2, ids) => emit('depend', t2, ids)"
+          @link="(t2, url) => emit('link', t2, url)"
           @start="(t2) => emit('start', t2)"
           @review="(t2) => emit('review', t2)"
         />

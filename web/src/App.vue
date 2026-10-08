@@ -181,6 +181,7 @@ const setState = (t: Ticket, state: TicketState, blockedReason?: string) =>
   saved('could not save', () => saveTicket(target(t), { state, ...(blockedReason !== undefined ? { blockedReason } : {}) }))
 const setNextStep = (t: Ticket, text: string) => saved('could not save', () => saveTicket(target(t), { nextStep: text }))
 const setDependencies = (t: Ticket, ids: string[]) => saved('could not save', () => saveTicket(target(t), { blockedBy: ids }))
+const setLink = (t: Ticket, url: string) => saved('could not save', () => saveTicket(target(t), { link: url }))
 const noteDiscovery = (t: Ticket, text: string) => saved('could not save', () => addDiscovery(target(t), text))
 const triage = (t: Ticket, discoveryId: string, action: TriageAction) => saved('could not save', () => triageDiscovery(t.id, discoveryId, action))
 const dismiss = (sessionId: string) => saved('could not dismiss', () => dismissSession(sessionId, true))
@@ -211,7 +212,7 @@ const allTickets = computed(() =>
     .flatMap((repo) => {
       const graph = branchState[repo.path]?.data?.graph
       const fallbackDefault = repo.worktrees.some((w) => w.branch === 'master') ? 'master' : 'main'
-      return buildTickets(repo.worktrees, graph?.nodes ?? [], graph?.default ?? fallbackDefault, { repo: repo.path, stored: ticketStore.value?.tickets })
+      return buildTickets(repo.worktrees, graph?.nodes ?? [], graph?.default ?? fallbackDefault, { repo: repo.path, stored: ticketStore.value?.tickets, linkTemplate: ticketStore.value?.config.linkTemplate })
     })
     .filter((t) => matchTicket(t, query.value)),
 )
@@ -351,6 +352,7 @@ onBeforeUnmount(() => {
       @plan="(id, title) => (planFor = { id, title })"
       @sessions="(p) => openSessionsByPath(p)"
       @depend="(t, ids) => setDependencies(t, ids)"
+      @link="(t, url) => setLink(t, url)"
       @start="(t) => startTicket(t)"
       @review="(t) => reviewTicket(t)"
     />

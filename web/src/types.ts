@@ -233,6 +233,7 @@ export interface StoredTicket {
   blockedReason?: string
   blockedBy?: string[]
   nextStep?: string
+  link?: string
   discoveries?: Discovery[]
   created: string
   updated: string
@@ -241,5 +242,5 @@ export interface StoredTicket {
 export interface TicketsData {
   tickets: Record<string, StoredTicket>
   dismissed: string[]
-  config: { wipLimit: number }
+  config: { wipLimit: number; linkTemplate?: string }
 }

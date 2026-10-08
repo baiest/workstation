@@ -86,7 +86,10 @@ func run(addr, cfgPath, cacheDir, notesFile, ticketsFile string) error {
 
 	cli := claude.NewCLI(claude.DefaultCLIRoot(), claude.PidAlive)
 	provider := claude.Combined{CLI: cli, Desktop: claude.NewDesktop(claude.DesktopRoots())}
-	keyer := tickets.Keyer{}
+	keyer, err := tickets.NewKeyer(cfg.TicketPattern)
+	if err != nil {
+		return fmt.Errorf("%s: %w", cfgPath, err)
+	}
 
 	branchSvc := branches.NewService(forge.DefaultDeps(cfg.Forges))
 	if cacheDir != "" {
@@ -107,6 +110,7 @@ func run(addr, cfgPath, cacheDir, notesFile, ticketsFile string) error {
 		server.WithCleanup(branchSvc),
 		server.WithNotes(notes.New(notesFile)),
 		server.WithTickets(tickets.New(ticketsFile), keyer),
+		server.WithTicketLink(cfg.TicketLink),
 		server.WithWorktreeCleanup(&wtclean.Service{PRs: branchSvc.PullRequests}),
 	)
 	log.Printf("workstation listening on http://%s", addr)

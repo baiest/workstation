@@ -219,3 +219,26 @@ func TestReviewOpensAReadOnlySessionInAKnownWorktree(t *testing.T) {
 		t.Fatalf("no default branch: %d", code)
 	}
 }
+
+func TestStartBriefCarriesTheTrackerLink(t *testing.T) {
+	g := &fakeGit{}
+	ws, _ := fixtureWorkspace(t)
+	l := &fakeLauncher{}
+	store := tickets.New("")
+	h := New(func() (workspace.Workspace, error) { return ws, nil }, l, fstest.MapFS{},
+		WithTickets(store, tickets.Keyer{}), WithGit(g), WithTicketLink("https://tracker.example.com/browse/{key}"))
+
+	ws.Repos[0].Worktrees[0].Ticket = "REG-5"
+	if code, body := post(h, "/api/actions/start", startReq("REG-5")); code != 204 {
+		t.Fatalf("%d %s", code, body)
+	}
+	if !strings.Contains(l.prompts[0], "Tracker: https://tracker.example.com/browse/REG-5") {
+		t.Fatalf("%s", l.prompts[0])
+	}
+
+	link := "https://trello.com/c/abc"
+	_, _ = store.Apply(tickets.Update{Repo: "/r", Ref: "REG-5", Link: &link})
+	if code, _ := post(h, "/api/actions/start", startReq("REG-5")); code != 204 || !strings.Contains(l.prompts[1], "Tracker: "+link) {
+		t.Fatalf("a link written by hand wins: %v", l.prompts)
+	}
+}

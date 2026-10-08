@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildTickets, matchTicket } from './tickets'
+import { buildTickets, linkOf, matchTicket } from './tickets'
 import type { BranchNode, Pr, Session, StoredTicket, Worktree } from './types'
 
 const session = (over: Partial<Session> = {}): Session => ({
@@ -203,5 +203,30 @@ describe('matchTicket', () => {
   it('matches everything on an empty query and nothing on a miss', () => {
     expect(matchTicket(t, '  ')).toBe(true)
     expect(matchTicket(t, 'zzz')).toBe(false)
+  })
+})
+
+describe('linkOf', () => {
+  const stored = (link?: string): StoredTicket => ({ id: '/r|REG-1', repo: '/r', ref: 'REG-1', link, created: '', updated: '' })
+  const tpl = 'https://tracker.example.com/browse/{key}'
+
+  it('builds the link from the key and the template, whichever tracker it is', () => {
+    expect(linkOf(undefined, 'REG-1', tpl)).toBe('https://tracker.example.com/browse/REG-1')
+    expect(linkOf(undefined, 'LOY-9', 'https://gh.example.com/o/r/issues?q={key}&k={key}')).toBe('https://gh.example.com/o/r/issues?q=LOY-9&k=LOY-9')
+  })
+
+  it('a link written by hand wins over the template', () => {
+    expect(linkOf(stored('https://trello.com/c/abc'), 'REG-1', tpl)).toBe('https://trello.com/c/abc')
+  })
+
+  it('has no link without a key, without a template, or for a branch ticket', () => {
+    expect(linkOf(undefined, 'REG-1')).toBe('')
+    expect(linkOf(undefined, 'branch:fix/typo', tpl)).toBe('')
+    expect(linkOf(undefined, 'note:ab12', tpl)).toBe('')
+  })
+
+  it('reaches the ticket', () => {
+    const [t] = buildTickets([wt('REG-1-a', 'REG-1-a', { ticket: 'REG-1' })], [], 'main', { repo: '/r', linkTemplate: tpl })
+    expect(t.link).toBe('https://tracker.example.com/browse/REG-1')
   })
 })

@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"net/url"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -79,7 +80,18 @@ func (s *Server) start(req actionRequest, ws workspace.Workspace) error {
 		}
 		stored, _ = s.tickets.Get(tickets.ID(repo.Path, ref))
 	}
-	return s.launcher.Prompt(dir, startBrief(ref, titleOf(repo, ref, stored), branch, dir, stored))
+	return s.launcher.Prompt(dir, startBrief(ref, titleOf(repo, ref, stored), branch, dir, s.linkOf(ref, stored), stored))
+}
+
+// linkOf is the address of the ticket in the user's tracker: the stored one, else the template filled with its key.
+func (s *Server) linkOf(ref string, t tickets.Ticket) string {
+	if t.Link != "" {
+		return t.Link
+	}
+	if s.linkTemplate != "" && tickets.IsKey(ref) {
+		return strings.ReplaceAll(s.linkTemplate, "{key}", url.PathEscape(ref))
+	}
+	return ""
 }
 
 // worktreeFor finds or creates the folder to work in, and returns it with its branch.
@@ -188,7 +200,7 @@ func titleOf(repo workspace.Repo, ref string, stored tickets.Ticket) string {
 }
 
 // startBrief is the first message of a session started from a ticket.
-func startBrief(ref, title, branch, dir string, t tickets.Ticket) string {
+func startBrief(ref, title, branch, dir, link string, t tickets.Ticket) string {
 	var b strings.Builder
 	label := title
 	if tickets.IsKey(ref) {
@@ -199,6 +211,9 @@ func startBrief(ref, title, branch, dir string, t tickets.Ticket) string {
 		fmt.Fprintf(&b, "Branch: %s\n", branch)
 	}
 	fmt.Fprintf(&b, "Folder: %s\n", dir)
+	if link != "" {
+		fmt.Fprintf(&b, "Tracker: %s\n", link)
+	}
 
 	if t.NextStep != "" {
 		fmt.Fprintf(&b, "\nNext step, written by whoever worked on this last:\n%s\n", indent(t.NextStep))

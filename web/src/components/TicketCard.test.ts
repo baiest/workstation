@@ -164,6 +164,27 @@ describe('TicketCard', () => {
     expect(w.emitted('depend')![0]).toEqual([expect.objectContaining({ ref: 'REG-1' }), ['/r|B', '/r|A']])
   })
 
+  it('links to the tracker, and only with a safe address', () => {
+    const w = render(ticket({ link: 'https://trello.com/c/abc' }))
+    expect(w.get('[data-link]').attributes()).toMatchObject({ href: 'https://trello.com/c/abc', target: '_blank', rel: 'noopener noreferrer' })
+    expect(render(ticket()).find('[data-link]').exists()).toBe(false)
+    expect(render(ticket({ link: 'javascript:alert(1)' })).find('[data-link]').exists()).toBe(false)
+  })
+
+  it('edits the link: Enter saves, Escape drops, and the input starts from the stored one', async () => {
+    const w = render(ticket({ link: 'https://old.example.com/1' }))
+    await w.get('[data-edit-link]').trigger('click')
+    expect((w.get('[data-link-input]').element as HTMLInputElement).value).toBe('https://old.example.com/1')
+    await w.get('[data-link-input]').setValue('https://new.example.com/2')
+    await w.get('[data-link-input]').trigger('keydown', { key: 'Enter' })
+    expect(w.emitted('link')![0]).toEqual([expect.objectContaining({ ref: 'REG-1' }), 'https://new.example.com/2'])
+
+    await w.get('[data-edit-link]').trigger('click')
+    await w.get('[data-link-input]').setValue('https://dropped.example.com')
+    await w.get('[data-link-input]').trigger('keydown', { key: 'Escape' })
+    expect(w.emitted('link')).toHaveLength(1)
+  })
+
   it('names the project when asked to', () => {
     expect(render(ticket(), { repoName: 'Loyall' }).get('.repo-badge').text()).toBe('Loyall')
     expect(render(ticket()).find('.repo-badge').exists()).toBe(false)

@@ -215,3 +215,20 @@ func TestDependenciesThroughTheAPI(t *testing.T) {
 		t.Fatalf("a refused dependency is not stored: %+v", tk)
 	}
 }
+
+func TestTicketLinkTemplateIsExposedAndLinksAreSaved(t *testing.T) {
+	h, store, _ := ticketServer(t, WithTicketLink("https://tracker.example.com/browse/{key}"))
+	rec := do(h, http.MethodGet, "/api/tickets", "", nil)
+	if !strings.Contains(rec.Body.String(), `"linkTemplate":"https://tracker.example.com/browse/{key}"`) {
+		t.Fatalf("%s", rec.Body)
+	}
+	if code, body := post(h, "/api/tickets", map[string]any{"repo": "/r", "ref": "REG-1", "link": "https://github.com/o/r/issues/4"}); code != 200 {
+		t.Fatalf("%d %s", code, body)
+	}
+	if tk, _ := store.Get("/r|REG-1"); tk.Link != "https://github.com/o/r/issues/4" {
+		t.Fatalf("%+v", tk)
+	}
+	if code, _ := post(h, "/api/tickets", map[string]any{"repo": "/r", "ref": "REG-1", "link": "javascript:alert(1)"}); code != 400 {
+		t.Fatalf("a script link must be refused: %d", code)
+	}
+}

@@ -408,3 +408,5 @@ button.danger:hover:not(:disabled) { background: var(--danger); border-color: va
 .dag-top { display: flex; align-items: center; gap: 0.4rem; min-width: 0; }
 .dag-title { font-size: 0.92rem; }
 .dag-repo { font-size: 0.78rem; }
+.tracker-link { flex: none; font-size: 0.82rem; color: var(--accent); text-decoration: none; }
+.tracker-link:hover { text-decoration: underline; }

@@ -94,6 +94,7 @@ export interface TicketPatch {
   nextStep?: string
   blockedReason?: string
   blockedBy?: string[]
+  link?: string
   branch?: string
 }
 

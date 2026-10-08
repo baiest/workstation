@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"workstation/internal/safeio"
 )
@@ -18,6 +20,13 @@ type Config struct {
 	Repos []string `json:"repos"`
 	// Forges tell the app how to reach pull requests on hosts it cannot infer.
 	Forges []Forge `json:"forges"`
+	// TicketLink turns a ticket key into a link to wherever you track your work
+	// (Jira, GitHub Issues, Trello, Taiga...): "https://tracker.example.com/browse/{key}".
+	// Workstation never calls that address; it only shows the link.
+	TicketLink string `json:"ticketLink,omitempty"`
+	// TicketPattern says what a ticket key looks like in a branch name: a regular
+	// expression with one capture group (the key). Default: Jira style, REG-123.
+	TicketPattern string `json:"ticketPattern,omitempty"`
 }
 
 // Forge describes a code host. Secrets are never stored here: UserEnv and
@@ -49,5 +58,24 @@ func Load(path string) (Config, error) {
 	if err := json.Unmarshal(data, &c); err != nil {
 		return Config{}, fmt.Errorf("%s: %w", path, err)
 	}
+	if err := c.validate(); err != nil {
+		return Config{}, fmt.Errorf("%s: %w", path, err)
+	}
 	return c, nil
+}
+
+// validate checks what can be checked without the rest of the app. The ticket
+// pattern is compiled where it is used (tickets.NewKeyer).
+func (c Config) validate() error {
+	if c.TicketLink == "" {
+		return nil
+	}
+	if !strings.Contains(c.TicketLink, "{key}") {
+		return errors.New(`ticketLink must contain {key}, e.g. "https://tracker.example.com/browse/{key}"`)
+	}
+	u, err := url.Parse(strings.ReplaceAll(c.TicketLink, "{key}", "KEY-1"))
+	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+		return errors.New("ticketLink must be an http(s) address")
+	}
+	return nil
 }

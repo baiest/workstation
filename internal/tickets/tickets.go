@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -65,6 +66,7 @@ const (
 	MaxDiscovery     = 300
 	MaxDiscoveries   = 50
 	MaxBlockedBy     = 10
+	MaxLink          = 500
 	MaxTickets       = 2000
 	MaxDismissed     = 1000
 	maxFile          = 4 << 20
@@ -97,6 +99,7 @@ type Ticket struct {
 	BlockedReason string      `json:"blockedReason,omitempty"`
 	BlockedBy     []string    `json:"blockedBy,omitempty"` // ids of the tickets this one waits for
 	NextStep      string      `json:"nextStep,omitempty"`
+	Link          string      `json:"link,omitempty"` // where this ticket lives in your tracker, whichever it is
 	Discoveries   []Discovery `json:"discoveries,omitempty"`
 	Created       time.Time   `json:"created"`
 	Updated       time.Time   `json:"updated"`
@@ -111,6 +114,7 @@ type Update struct {
 	BlockedReason *string
 	BlockedBy     *[]string // replaces the whole list
 	NextStep      *string
+	Link          *string
 }
 
 type fileData struct {
@@ -285,7 +289,7 @@ func (s *Store) entry(repo, ref string) (*Ticket, error) {
 // prune drops a ticket that carries no decision and no text, so the store only
 // holds what a human wrote.
 func (s *Store) prune(t *Ticket) {
-	if t.State == StateInbox && t.Title == "" && t.NextStep == "" && t.BlockedReason == "" && t.Branch == "" && len(t.Discoveries) == 0 && len(t.BlockedBy) == 0 {
+	if t.State == StateInbox && t.Title == "" && t.NextStep == "" && t.BlockedReason == "" && t.Branch == "" && t.Link == "" && len(t.Discoveries) == 0 && len(t.BlockedBy) == 0 {
 		delete(s.data.Tickets, t.ID)
 	}
 }
@@ -319,6 +323,13 @@ func (s *Store) Apply(u Update) (Ticket, error) {
 	}
 	if u.State != nil && !validStates[*u.State] {
 		return Ticket{}, fmt.Errorf("unknown state %q", *u.State)
+	}
+	var link string
+	if u.Link != nil {
+		var err error
+		if link, err = cleanLink(*u.Link); err != nil {
+			return Ticket{}, err
+		}
 	}
 	var deps []string
 	if u.BlockedBy != nil {
@@ -355,6 +366,9 @@ func (s *Store) Apply(u Update) (Ticket, error) {
 	if u.BlockedBy != nil {
 		t.BlockedBy = deps
 	}
+	if u.Link != nil {
+		t.Link = link
+	}
 	if u.State != nil {
 		t.State = *u.State
 		if t.State != StateBlocked && u.BlockedReason == nil {
@@ -366,6 +380,27 @@ func (s *Store) Apply(u Update) (Ticket, error) {
 	cp.Discoveries = append([]Discovery(nil), t.Discoveries...)
 	s.prune(t)
 	return cp, s.save()
+}
+
+// cleanLink accepts an empty link or an absolute http(s) address: it ends up in an href.
+func cleanLink(in string) (string, error) {
+	in = strings.TrimSpace(in)
+	if in == "" {
+		return "", nil
+	}
+	if err := tooLong("link", in, MaxLink); err != nil {
+		return "", err
+	}
+	u, err := url.Parse(in)
+	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+		return "", errors.New("a link must be an http(s) address")
+	}
+	for _, r := range in {
+		if unicode.IsControl(r) || unicode.IsSpace(r) {
+			return "", errors.New("a link cannot contain spaces or control characters")
+		}
+	}
+	return u.String(), nil
 }
 
 // cleanDeps validates a dependency list: ids built by ID, no repeats, no more than MaxBlockedBy.

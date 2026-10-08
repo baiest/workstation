@@ -21,6 +21,9 @@ type TicketStore interface {
 	MarkMigrated() error
 }
 
+// WithTicketLink sets the address template that turns a ticket key into a link to the user's tracker.
+func WithTicketLink(template string) Option { return func(o *options) { o.linkTemplate = template } }
+
 // WithTickets enables /api/tickets. The keyer names the ticket of branches the
 // workspace does not carry (the branch graph).
 func WithTickets(t TicketStore, k tickets.Keyer) Option {
@@ -31,6 +34,8 @@ type ticketsResponse struct {
 	tickets.Snapshot
 	Config struct {
 		WIPLimit int `json:"wipLimit"`
+		// LinkTemplate turns a ticket key into a link to the user's tracker; "" when none is configured.
+		LinkTemplate string `json:"linkTemplate"`
 	} `json:"config"`
 }
 
@@ -41,6 +46,7 @@ func (s *Server) handleTicketsGet(w http.ResponseWriter, r *http.Request) {
 	}
 	resp := ticketsResponse{Snapshot: s.tickets.Snapshot()}
 	resp.Config.WIPLimit = tickets.DefaultWIPLimit()
+	resp.Config.LinkTemplate = s.linkTemplate
 	writeJSON(w, resp)
 }
 
@@ -161,6 +167,7 @@ type ticketUpdateRequest struct {
 	BlockedReason *string        `json:"blockedReason"`
 	NextStep      *string        `json:"nextStep"`
 	BlockedBy     *[]string      `json:"blockedBy"`
+	Link          *string        `json:"link"`
 	Branch        *string        `json:"branch"`
 }
 
@@ -188,7 +195,7 @@ func (s *Server) handleTicketsSet(w http.ResponseWriter, r *http.Request) {
 	}
 	t, err := s.tickets.Apply(tickets.Update{
 		Repo: repo, Ref: ref, Title: req.Title, State: req.State,
-		BlockedReason: req.BlockedReason, BlockedBy: req.BlockedBy, NextStep: req.NextStep, Branch: req.Branch,
+		BlockedReason: req.BlockedReason, BlockedBy: req.BlockedBy, NextStep: req.NextStep, Link: req.Link, Branch: req.Branch,
 	})
 	replyTicket(w, t, err)
 }
