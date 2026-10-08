@@ -291,3 +291,69 @@ func LastCommit(dir string) (Commit, bool, error) {
 	c, ok := ParseCommit(out)
 	return c, ok, nil
 }
+
+// RefExists reports whether the fully qualified ref (refs/heads/x, refs/remotes/origin/x) names a commit.
+func RefExists(dir, ref string) bool {
+	if !strings.HasPrefix(ref, "refs/") {
+		return false
+	}
+	_, err := run(dir, "rev-parse", "--verify", "--quiet", ref+"^{commit}")
+	return err == nil
+}
+
+// StartPoint is where new work should begin: the default branch as the remote
+// last had it, else the local default branch. "" when the repo has neither.
+func StartPoint(dir string) string {
+	def := DefaultBranch(dir)
+	if def == "" {
+		return ""
+	}
+	for _, ref := range []string{"refs/remotes/origin/" + def, heads(def)} {
+		if RefExists(dir, ref) {
+			return ref
+		}
+	}
+	return ""
+}
+
+// AddWorktree creates a linked worktree of repo at path. With create, it makes
+// the new local branch from base (a full ref) without tracking it, so a push never
+// goes to the base's name; without create, it checks out the existing local
+// branch, which git refuses while another worktree has it. The path must be a new,
+// absolute directory name: it is passed after "--" and never through a shell.
+func AddWorktree(repo, path, branch, base string, create bool) error {
+	if !filepath.IsAbs(path) {
+		return fmt.Errorf("worktree path %q must be absolute", path)
+	}
+	for _, r := range path {
+		if r < 0x20 || r == 0x7f {
+			return fmt.Errorf("worktree path has control characters: %q", path)
+		}
+	}
+	if _, err := os.Stat(path); err == nil {
+		return fmt.Errorf("%s already exists", path)
+	}
+	if !validBranchName(repo, branch) {
+		return fmt.Errorf("invalid branch name %q", branch)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	if create {
+		if !RefExists(repo, base) {
+			return fmt.Errorf("start point %q does not exist", base)
+		}
+		if RefExists(repo, heads(branch)) {
+			return fmt.Errorf("branch %q already exists", branch)
+		}
+		_, err := run(repo, "worktree", "add", "--no-track", "-b", branch, "--", path, base)
+		return err
+	}
+	if !RefExists(repo, heads(branch)) {
+		return fmt.Errorf("branch %q does not exist", branch)
+	}
+	// the bare name: given a full ref, git would detach HEAD instead of checking the branch out.
+	// refs/heads/<branch> exists (checked above), which is what git consults, so a tag of that name cannot interfere.
+	_, err := run(repo, "worktree", "add", "--", path, branch)
+	return err
+}

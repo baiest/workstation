@@ -34,6 +34,7 @@ type Server struct {
 	notes           NoteStore
 	tickets         TicketStore
 	keyer           tickets.Keyer
+	git             GitOps
 
 	mu     sync.Mutex
 	last   *workspace.Workspace // snapshot actions are validated against
@@ -51,6 +52,7 @@ type options struct {
 	notes           NoteStore
 	tickets         TicketStore
 	keyer           tickets.Keyer
+	git             GitOps
 }
 
 // PlanReader loads a session's plan by slug (implemented by claude.CLI).
@@ -110,7 +112,10 @@ func New(build BuildFunc, launcher Launcher, web fs.FS, opts ...Option) http.Han
 	for _, opt := range opts {
 		opt(&o)
 	}
-	s := &Server{build: build, launcher: launcher, web: web, plans: o.plans, branches: o.branches, cleanup: o.cleanup, worktreeCleanup: o.worktreeCleanup, notes: o.notes, tickets: o.tickets, keyer: o.keyer}
+	if o.git == nil {
+		o.git = realGit{}
+	}
+	s := &Server{build: build, launcher: launcher, web: web, plans: o.plans, branches: o.branches, cleanup: o.cleanup, worktreeCleanup: o.worktreeCleanup, notes: o.notes, tickets: o.tickets, keyer: o.keyer, git: o.git}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/worktree-cleanup", s.handleWorktreeCleanupPreview)
 	mux.HandleFunc("POST /api/worktree-cleanup", s.handleWorktreeCleanupRemove)
@@ -352,6 +357,8 @@ type actionRequest struct {
 	Path      string `json:"path"`
 	SessionID string `json:"sessionId"`
 	Mode      string `json:"mode"` // resume only: "cli" (default) or "desktop"
+	Repo      string `json:"repo"` // start only: the repo and ticket ref of the ticket to start
+	Ref       string `json:"ref"`
 }
 
 func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
@@ -360,7 +367,7 @@ func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	action := r.PathValue("action")
-	if action != "terminal" && action != "editor" && action != "resume" {
+	if action != "terminal" && action != "editor" && action != "resume" && action != "start" && action != "review" {
 		http.NotFound(w, r)
 		return
 	}
@@ -394,8 +401,13 @@ func (b badRequest) Error() string { return string(b) }
 // run executes an action only against paths/sessions present in the last
 // computed workspace, never against arbitrary client-supplied values.
 func (s *Server) run(action string, req actionRequest, ws workspace.Workspace) error {
-	if action == "resume" {
+	switch action {
+	case "resume":
 		return s.resume(req, ws)
+	case "start":
+		return s.start(req, ws)
+	case "review":
+		return s.review(req, ws)
 	}
 	if !knownWorktree(ws, req.Path) {
 		return badRequest("unknown worktree path")

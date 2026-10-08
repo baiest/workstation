@@ -156,7 +156,7 @@ function toggleMerged(repo: Repo) {
   loadBranches(repo)
 }
 
-async function act(action: Action, body: { path?: string; sessionId?: string; mode?: ResumeWith }) {
+async function act(action: Action, body: { path?: string; sessionId?: string; mode?: ResumeWith; repo?: string; ref?: string }) {
   try {
     await runAction(action, body)
     toast.value = ''
@@ -182,6 +182,22 @@ const setNextStep = (t: Ticket, text: string) => saved('could not save', () => s
 const noteDiscovery = (t: Ticket, text: string) => saved('could not save', () => addDiscovery(target(t), text))
 const triage = (t: Ticket, discoveryId: string, action: TriageAction) => saved('could not save', () => triageDiscovery(t.id, discoveryId, action))
 const dismiss = (sessionId: string) => saved('could not dismiss', () => dismissSession(sessionId, true))
+
+// Starting Claude on a ticket makes it active: ask first when that would go past the limit.
+async function startTicket(t: Ticket) {
+  const limit = ticketStore.value?.config.wipLimit ?? 3
+  const active = allTickets.value.filter((x) => x.state === 'active').length
+  if (t.state !== 'active' && active >= limit && !window.confirm(`You already have ${active} active tickets (limit ${limit}). Start this one anyway?`)) return
+  notice.value = ''
+  await act('start', { repo: t.repo, ref: t.ref })
+  if (!toast.value) notice.value = `Claude opened in a terminal on ${t.title}`
+  await Promise.all([refresh(true), loadTickets()]) // it may have made a worktree and the ticket is active now
+}
+
+function reviewTicket(t: Ticket) {
+  const wt = t.items.find((i) => i.worktree && !i.worktree.isMain)?.worktree
+  if (wt) act('review', { path: wt.path })
+}
 
 const visibleRepos = computed(() => (data.value?.repos ?? []).filter((r) => !isHidden(r)))
 const repoNames = computed(() => Object.fromEntries(visibleRepos.value.map((r) => [r.path, r.name])))
@@ -329,6 +345,8 @@ onBeforeUnmount(() => {
       @resume="(id) => resumeSession(id)"
       @plan="(id, title) => (planFor = { id, title })"
       @sessions="(p) => openSessionsByPath(p)"
+      @start="(t) => startTicket(t)"
+      @review="(t) => reviewTicket(t)"
     />
 
     <section v-for="repo in view === 'repos' ? repos : []" :key="repo.path">

@@ -481,3 +481,99 @@ func TestGitIntegration(t *testing.T) {
 		t.Fatal("expected error outside a repo")
 	}
 }
+
+func TestAddWorktreeCreatesABranchFromTheStartPointWithoutTracking(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	repo := t.TempDir()
+	mustGit(t, repo, "init", "-b", "main")
+	commitFile(t, repo, "a.txt", "1", "c1")
+
+	base := StartPoint(repo)
+	if base != "refs/heads/main" {
+		t.Fatalf("no remote: the local default branch is the start point, got %q", base)
+	}
+
+	dir := filepath.Join(t.TempDir(), "nested", "REG-5-thing")
+	if err := AddWorktree(repo, dir, "REG-5-thing", base, true); err != nil {
+		t.Fatal(err)
+	}
+	if top, err := TopLevel(dir); err != nil || !samePath(t, top, dir) {
+		t.Fatalf("the new folder is a worktree: %q %v", top, err)
+	}
+	wts, _ := Worktrees(repo)
+	found := false
+	for _, w := range wts {
+		if w.Branch == "REG-5-thing" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("git does not list the new worktree: %+v", wts)
+	}
+	if out, err := run(repo, "config", "--get", "branch.REG-5-thing.merge"); err == nil && strings.TrimSpace(out) != "" {
+		t.Fatalf("a new branch must not track its start point: %q", out)
+	}
+
+	// a second time: the folder and the branch exist now
+	if err := AddWorktree(repo, dir, "REG-5-thing", base, true); err == nil {
+		t.Fatal("an existing folder must be refused")
+	}
+	if err := AddWorktree(repo, filepath.Join(t.TempDir(), "other"), "REG-5-thing", base, true); err == nil {
+		t.Fatal("an existing branch must not be silently reused when creating")
+	}
+}
+
+func TestAddWorktreeChecksOutAnExistingBranchAndUsesRemoteStartPoints(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	origin := t.TempDir()
+	mustGit(t, origin, "init", "-b", "main")
+	commitFile(t, origin, "a.txt", "1", "c1")
+	repo := filepath.Join(t.TempDir(), "clone")
+	if out, err := exec.Command("git", "clone", origin, repo).CombinedOutput(); err != nil {
+		t.Fatalf("clone: %v %s", err, out)
+	}
+	if got := StartPoint(repo); got != "refs/remotes/origin/main" {
+		t.Fatalf("with a remote the start point is what the remote has: %q", got)
+	}
+
+	mustGit(t, repo, "branch", "feature/old")
+	dir := filepath.Join(t.TempDir(), "old")
+	if err := AddWorktree(repo, dir, "feature/old", "", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := AddWorktree(repo, filepath.Join(t.TempDir(), "again"), "feature/old", "", false); err == nil {
+		t.Fatal("git refuses a branch another worktree has checked out")
+	}
+	if err := AddWorktree(repo, filepath.Join(t.TempDir(), "nope"), "feature/missing", "", false); err == nil {
+		t.Fatal("a missing branch must be refused")
+	}
+}
+
+func TestAddWorktreeRefusesHostileInput(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	repo := t.TempDir()
+	mustGit(t, repo, "init", "-b", "main")
+	commitFile(t, repo, "a.txt", "1", "c1")
+	root := t.TempDir()
+	for name, c := range map[string]struct{ path, branch, base string }{
+		"relative path":      {"rel/dir", "ok", "refs/heads/main"},
+		"control characters": {filepath.Join(root, "a\nb"), "ok", "refs/heads/main"},
+		"option as branch":   {filepath.Join(root, "x"), "-x", "refs/heads/main"},
+		"bad branch":         {filepath.Join(root, "y"), "a..b", "refs/heads/main"},
+		"unqualified base":   {filepath.Join(root, "z"), "ok", "main"},
+		"missing base":       {filepath.Join(root, "w"), "ok", "refs/heads/nope"},
+	} {
+		if err := AddWorktree(repo, c.path, c.branch, c.base, true); err == nil {
+			t.Errorf("%s: expected an error", name)
+		}
+	}
+	if wts, _ := Worktrees(repo); len(wts) != 1 {
+		t.Fatalf("a refused call must not leave a worktree behind: %+v", wts)
+	}
+}

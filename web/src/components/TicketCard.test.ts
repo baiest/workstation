@@ -128,6 +128,22 @@ describe('TicketCard', () => {
     expect(w.get('.ticket-actions button').text()).toBe('Mark done')
   })
 
+  it('starts a Claude session and a review from the ticket', async () => {
+    const w = render(ticket({ state: 'active' }))
+    await w.get('[data-start]').trigger('click')
+    await w.get('[data-review]').trigger('click')
+    expect(w.emitted('start')![0]).toEqual([expect.objectContaining({ ref: 'REG-1' })])
+    expect(w.emitted('review')![0]).toEqual([expect.objectContaining({ ref: 'REG-1' })])
+  })
+
+  it('does not offer to start what is blocked, done or ignored, nor to review what has no worktree', () => {
+    for (const state of ['blocked', 'done', 'ignored'] as const) expect(render(ticket({ state })).find('[data-start]').exists()).toBe(false)
+    const none = buildTickets([], [], 'main', { repo: '/r', stored: { '/r|note:a': { id: '/r|note:a', repo: '/r', ref: 'note:a', title: 'later', state: 'parked', created: '', updated: '' } } })[0]
+    const w = render(none)
+    expect(w.find('[data-start]').exists()).toBe(true)
+    expect(w.find('[data-review]').exists()).toBe(false)
+  })
+
   it('names the project when asked to', () => {
     expect(render(ticket(), { repoName: 'Loyall' }).get('.repo-badge').text()).toBe('Loyall')
     expect(render(ticket()).find('.repo-badge').exists()).toBe(false)

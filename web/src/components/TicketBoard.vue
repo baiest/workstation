@@ -20,6 +20,8 @@ const emit = defineEmits<{
   resume: [sessionId: string]
   plan: [sessionId: string, title: string]
   sessions: [path: string]
+  start: [ticket: Ticket]
+  review: [ticket: Ticket]
 }>()
 
 const sections = computed(() => groupTickets(props.tickets, props.now))
@@ -63,6 +65,8 @@ const toggle = (s: SectionId) => (open[s] = !isOpen(s))
           @resume="(id) => emit('resume', id)"
           @plan="(id, title) => emit('plan', id, title)"
           @sessions="(p) => emit('sessions', p)"
+          @start="(t2) => emit('start', t2)"
+          @review="(t2) => emit('review', t2)"
         />
       </div>
     </section>

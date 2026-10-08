@@ -22,11 +22,16 @@ const emit = defineEmits<{
   resume: [sessionId: string]
   plan: [sessionId: string, title: string]
   sessions: [path: string]
+  start: [ticket: Ticket]
+  review: [ticket: Ticket]
 }>()
 
 const t = computed(() => props.ticket)
 const actions = computed(() => stateActions(t.value))
 const rowsOpen = ref(props.expanded)
+// a session can be started on anything still in play; a review needs something to review
+const canStart = computed(() => !['done', 'ignored', 'blocked'].includes(t.value.state))
+const canReview = computed(() => t.value.items.some((i) => i.worktree && !i.worktree.isMain))
 
 const signalText: Partial<Record<Attention, [string, string]>> = {
   'asks-you': ['asks you', 'Claude finished with a question (a guess from its last words)'],
@@ -176,6 +181,10 @@ function confirmBlock() {
       >
         {{ a.label }}
       </button>
+      <button v-if="canStart" class="start" data-start title="Open Claude on this ticket, in its worktree (one is created if needed), starting from its next step" @click="emit('start', t)">
+        ▶ Start Claude
+      </button>
+      <button v-if="canReview" data-review title="Open a read-only Claude session that reviews this work against the default branch" @click="emit('review', t)">Review</button>
       <span class="spacer" />
       <input
         v-if="discovering"
