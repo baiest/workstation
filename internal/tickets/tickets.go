@@ -67,6 +67,7 @@ const (
 	MaxDiscoveries   = 50
 	MaxBlockedBy     = 10
 	MaxLink          = 500
+	MaxHistory       = 100
 	MaxTickets       = 2000
 	MaxDismissed     = 1000
 	maxFile          = 4 << 20
@@ -88,21 +89,29 @@ type Discovery struct {
 	At         time.Time `json:"at"`
 }
 
+// Transition is one change of state, kept so the page can show where time went.
+type Transition struct {
+	From State     `json:"from"`
+	To   State     `json:"to"`
+	At   time.Time `json:"at"`
+}
+
 // Ticket is the stored part of a ticket.
 type Ticket struct {
-	ID            string      `json:"id"`
-	Repo          string      `json:"repo"`
-	Ref           string      `json:"ref"`
-	Branch        string      `json:"branch,omitempty"` // a branch that belongs to this ticket although its name says otherwise
-	Title         string      `json:"title,omitempty"`
-	State         State       `json:"state,omitempty"`
-	BlockedReason string      `json:"blockedReason,omitempty"`
-	BlockedBy     []string    `json:"blockedBy,omitempty"` // ids of the tickets this one waits for
-	NextStep      string      `json:"nextStep,omitempty"`
-	Link          string      `json:"link,omitempty"` // where this ticket lives in your tracker, whichever it is
-	Discoveries   []Discovery `json:"discoveries,omitempty"`
-	Created       time.Time   `json:"created"`
-	Updated       time.Time   `json:"updated"`
+	ID            string       `json:"id"`
+	Repo          string       `json:"repo"`
+	Ref           string       `json:"ref"`
+	Branch        string       `json:"branch,omitempty"` // a branch that belongs to this ticket although its name says otherwise
+	Title         string       `json:"title,omitempty"`
+	State         State        `json:"state,omitempty"`
+	BlockedReason string       `json:"blockedReason,omitempty"`
+	BlockedBy     []string     `json:"blockedBy,omitempty"` // ids of the tickets this one waits for
+	NextStep      string       `json:"nextStep,omitempty"`
+	Link          string       `json:"link,omitempty"` // where this ticket lives in your tracker, whichever it is
+	History       []Transition `json:"history,omitempty"`
+	Discoveries   []Discovery  `json:"discoveries,omitempty"`
+	Created       time.Time    `json:"created"`
+	Updated       time.Time    `json:"updated"`
 }
 
 // Update is a partial change: nil fields stay as they are.
@@ -286,6 +295,14 @@ func (s *Store) entry(repo, ref string) (*Ticket, error) {
 	return t, nil
 }
 
+// record keeps a change of state, forgetting the oldest beyond MaxHistory.
+func (s *Store) record(t *Ticket, from, to State) {
+	t.History = append(t.History, Transition{From: from, To: to, At: s.now()})
+	if over := len(t.History) - MaxHistory; over > 0 {
+		t.History = append([]Transition(nil), t.History[over:]...)
+	}
+}
+
 // prune drops a ticket that carries no decision and no text, so the store only
 // holds what a human wrote.
 func (s *Store) prune(t *Ticket) {
@@ -370,6 +387,9 @@ func (s *Store) Apply(u Update) (Ticket, error) {
 		t.Link = link
 	}
 	if u.State != nil {
+		if *u.State != t.State {
+			s.record(t, t.State, *u.State)
+		}
 		t.State = *u.State
 		if t.State != StateBlocked && u.BlockedReason == nil {
 			t.BlockedReason = "" // an old reason would mislead once it is no longer blocked
@@ -564,6 +584,7 @@ func (s *Store) Triage(ticketID, discoveryID, action string) (Ticket, *Ticket, e
 		now := s.now()
 		ref := notePrefix + d.ID
 		nt := &Ticket{ID: ID(t.Repo, ref), Repo: t.Repo, Ref: ref, Title: d.Text, State: StateParked, Created: now, Updated: now}
+		s.record(nt, StateInbox, StateParked)
 		s.data.Tickets[nt.ID] = nt
 		d.Status, d.PromotedTo = DiscoveryPromoted, nt.ID
 		cp := *nt

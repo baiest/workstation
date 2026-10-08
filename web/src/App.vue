@@ -12,6 +12,7 @@ import StageBoard from './components/StageBoard.vue'
 import TidyBar from './components/TidyBar.vue'
 import TicketBoard from './components/TicketBoard.vue'
 import DependencyGraph from './components/DependencyGraph.vue'
+import StatsPanel from './components/StatsPanel.vue'
 import WorktreeCleanupModal from './components/WorktreeCleanupModal.vue'
 import ActiveSessions from './components/ActiveSessions.vue'
 import { activeSessions } from './active'
@@ -29,7 +30,7 @@ import { oneOf, pref, readPref, writePref } from './prefs'
 import { useWorkspace } from './useWorkspace'
 
 type Tab = 'worktrees' | 'branches'
-type View = 'tickets' | 'deps' | 'repos'
+type View = 'tickets' | 'deps' | 'stats' | 'repos'
 
 const TAB_KEY = 'workstation.tabs'
 const UNLINKED_LIMIT = 50
@@ -44,7 +45,7 @@ const wtCleanupFor = ref<Repo | null>(null)
 const sessionsFor = ref<Worktree | null>(null) // the worktree whose full session list is open
 
 // Which page is the main one: the tickets (default) or the repos with their worktrees and branches.
-const viewPref = pref<View>('workstation.view', 'tickets', oneOf<View>('tickets', 'deps', 'repos'))
+const viewPref = pref<View>('workstation.view', 'tickets', oneOf<View>('tickets', 'deps', 'stats', 'repos'))
 const view = viewPref.value
 
 // Projects the user hid, remembered per browser.
@@ -280,6 +281,7 @@ onBeforeUnmount(() => {
     <span class="views" role="group" aria-label="View">
       <button data-view="tickets" :class="{ active: view === 'tickets' }" @click="viewPref.set('tickets')">Tickets</button>
       <button data-view="deps" :class="{ active: view === 'deps' }" title="Which ticket waits for which" @click="viewPref.set('deps')">Dependencies</button>
+      <button data-view="stats" :class="{ active: view === 'stats' }" title="Where the time went" @click="viewPref.set('stats')">Stats</button>
       <button data-view="repos" :class="{ active: view === 'repos' }" @click="viewPref.set('repos')">Repos</button>
     </span>
     <input ref="filterEl" v-model="query" class="filter" :placeholder="view === 'repos' ? 'Filter worktrees   ( / )' : 'Filter tickets   ( / )'" spellcheck="false" />
@@ -332,6 +334,13 @@ onBeforeUnmount(() => {
       @resume="(id) => resumeSession(id)"
       @plan="(id, title) => (planFor = { id, title })"
       @dismiss="(id) => dismiss(id)"
+    />
+
+    <StatsPanel
+      v-if="view === 'stats' && data"
+      :stored="Object.values(ticketStore?.tickets ?? {})"
+      :tickets="allTickets"
+      :wip-limit="ticketStore?.config.wipLimit ?? 3"
     />
 
     <DependencyGraph v-if="view === 'deps' && data" :tickets="allTickets" :repo-names="repoNames" />

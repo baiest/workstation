@@ -234,6 +234,7 @@ export interface StoredTicket {
   blockedBy?: string[]
   nextStep?: string
   link?: string
+  history?: { from: TicketState; to: TicketState; at: string }[]
   discoveries?: Discovery[]
   created: string
   updated: string

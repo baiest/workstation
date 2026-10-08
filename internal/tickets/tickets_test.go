@@ -410,3 +410,54 @@ func TestLinkMustBeAnHTTPAddress(t *testing.T) {
 		t.Fatal("a ticket with nothing left is not kept")
 	}
 }
+
+func TestHistoryRecordsEachChangeOfState(t *testing.T) {
+	s, _ := newStore(t)
+	for _, to := range []State{StateActive, StateBlocked, StateBlocked, StateActive, StateDone} {
+		if _, err := s.Apply(Update{Repo: "/r", Ref: "REG-1", State: st(to)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tk, _ := s.Get("/r|REG-1")
+	var got []string
+	for _, h := range tk.History {
+		got = append(got, string(h.From)+">"+string(h.To))
+	}
+	want := []string{">active", "active>blocked", "blocked>active", "active>done"} // the repeated "blocked" is not a change
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("history = %v, want %v", got, want)
+	}
+	for i := 1; i < len(tk.History); i++ {
+		if !tk.History[i].At.After(tk.History[i-1].At) {
+			t.Fatal("transitions are in time order")
+		}
+	}
+	if _, err := s.Apply(Update{Repo: "/r", Ref: "REG-1", NextStep: sp("x")}); err != nil {
+		t.Fatal(err)
+	}
+	if again, _ := s.Get("/r|REG-1"); len(again.History) != 4 {
+		t.Fatal("editing text is not a transition")
+	}
+}
+
+func TestHistoryIsBoundedAndAPromotedTicketStartsParked(t *testing.T) {
+	s, _ := newStore(t)
+	for i := 0; i < MaxHistory+20; i++ {
+		to := StateActive
+		if i%2 == 1 {
+			to = StateParked
+		}
+		if _, err := s.Apply(Update{Repo: "/r", Ref: "REG-1", State: st(to)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if tk, _ := s.Get("/r|REG-1"); len(tk.History) != MaxHistory {
+		t.Fatalf("history grew to %d", len(tk.History))
+	}
+
+	d, _ := s.AddDiscovery("/r", "REG-2", "later", SourceCLI)
+	_, born, err := s.Triage("/r|REG-2", d.ID, TriagePromote)
+	if err != nil || born == nil || len(born.History) != 1 || born.History[0].To != StateParked {
+		t.Fatalf("%+v %v", born, err)
+	}
+}
