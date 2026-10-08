@@ -290,3 +290,36 @@ func TestStoreKeysDoNotCollide(t *testing.T) {
 		t.Fatalf("a=%+v b=%+v", a, b)
 	}
 }
+
+func TestCachedPullRequestsNeverWaitsAndFillsInTheBackground(t *testing.T) {
+	t.Parallel()
+	repo := newRepo(t)
+	now := time.Now()
+	gate := make(chan struct{})
+	fp := &fakeProvider{prs: []forge.PR{open(5, "feat-a")}}
+	fp.set(fp.prs, gate) // the forge hangs until we say so
+	s := newService(fp, nil, &now)
+
+	var known bool
+	within(t, 10*time.Second, "a cold CachedPullRequests", func() { _, known = s.CachedPullRequests(repo) })
+	if known {
+		t.Fatal("nothing has been read yet: it must say so instead of waiting")
+	}
+
+	close(gate)
+	s.Wait()
+	prs, known := s.CachedPullRequests(repo)
+	if !known || len(prs) != 1 || prs[0].Number != 5 {
+		t.Fatalf("after the background read the PRs are known: known=%v prs=%+v", known, prs)
+	}
+	if fp.n() != 1 {
+		t.Fatalf("a fresh cache must not read the forge again: calls=%d", fp.n())
+	}
+
+	now = now.Add(10 * time.Minute) // expired: old data now, a refresh behind it
+	old, known := s.CachedPullRequests(repo)
+	s.Wait()
+	if !known || len(old) != 1 || fp.n() != 2 {
+		t.Fatalf("expired data is served and refreshed once: known=%v prs=%d calls=%d", known, len(old), fp.n())
+	}
+}

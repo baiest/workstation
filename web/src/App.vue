@@ -251,8 +251,12 @@ function ticketsOf(repo: Repo) {
 /** How many worktrees of the repo look removable (merged PR, nothing pending): a hint for the button. */
 const removableCount = (repo: Repo) => repo.worktrees.filter((w) => mergedHint(w, prFor(repo, w.branch))).length
 
+// The branch graph is the freshest source once it has loaded; until then the server's cache rides on the worktree.
 const prFor = (repo: Repo, branch?: string): Pr | undefined =>
-  branch ? branchState[repo.path]?.data?.graph.nodes.find((n) => n.branch === branch && !n.isDefault)?.pr : undefined
+  branch
+    ? (branchState[repo.path]?.data?.graph.nodes.find((n) => n.branch === branch && !n.isDefault)?.pr ??
+      repo.worktrees.find((w) => w.branch === branch && !w.isMain)?.pr)
+    : undefined
 
 const repos = computed(() =>
   (data.value?.repos ?? [])

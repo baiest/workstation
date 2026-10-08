@@ -182,12 +182,16 @@ export interface Worktree {
   git: GitInfo
   gitError?: string
   sessions: Session[]
+  /** the pull request of its branch, from the server's cache; absent while prsPending is set on the repo */
+  pr?: Pr
 }
 
 export interface Repo {
   name: string
   path: string
   worktrees: Worktree[]
+  /** pull requests not read yet: a worktree without pr may still have one */
+  prsPending?: boolean
 }
 
 export interface Unlinked {

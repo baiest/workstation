@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"workstation/internal/claude"
+	"workstation/internal/forge"
 	"workstation/internal/gitx"
 )
 
@@ -39,6 +40,9 @@ type Repo struct {
 	Name      string     `json:"name"`
 	Path      string     `json:"path"`
 	Worktrees []Worktree `json:"worktrees"`
+	// PRsPending is true until the pull requests of this repo have been read once;
+	// worktrees have no PR attached before that, which does not mean they have none.
+	PRsPending bool `json:"prsPending,omitempty"`
 }
 
 type Worktree struct {
@@ -51,6 +55,7 @@ type Worktree struct {
 	Git      GitInfo          `json:"git"`
 	GitError string           `json:"gitError,omitempty"`
 	Sessions []claude.Session `json:"sessions"` // newest first
+	PR       *forge.PR        `json:"pr,omitempty"`
 }
 
 type GitInfo struct {
@@ -74,6 +79,9 @@ type Unlinked struct {
 type Builder struct {
 	Provider   claude.ClaudeSessionProvider
 	ExtraRepos []string // optional repos to list even without sessions
+	// PRs, when set, returns the best pull request per source branch of a repo
+	// without waiting for the forge (known=false: not read yet).
+	PRs func(repo string) (byBranch map[string]*forge.PR, known bool)
 }
 
 func (b Builder) Build() (Workspace, error) {
@@ -101,7 +109,30 @@ func (b Builder) Build() (Workspace, error) {
 	}
 
 	ws.Repos = r.finish()
+	b.attachPRs(ws.Repos)
 	return ws, nil
+}
+
+// attachPRs puts the pull request of each branch on its worktree. The main
+// worktree is skipped: it is the default branch, not a piece of work.
+func (b Builder) attachPRs(repos []Repo) {
+	if b.PRs == nil {
+		return
+	}
+	for i := range repos {
+		byBranch, known := b.PRs(repos[i].Path)
+		repos[i].PRsPending = !known
+		for j := range repos[i].Worktrees {
+			w := &repos[i].Worktrees[j]
+			if w.IsMain || w.Branch == "" {
+				continue
+			}
+			if pr, ok := byBranch[w.Branch]; ok {
+				cp := *pr
+				w.PR = &cp
+			}
+		}
+	}
 }
 
 func dirExists(dir string) bool {

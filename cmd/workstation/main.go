@@ -70,11 +70,17 @@ func run(addr, cfgPath, cacheDir, notesFile string) error {
 
 	cli := claude.NewCLI(claude.DefaultCLIRoot(), claude.PidAlive)
 	provider := claude.Combined{CLI: cli, Desktop: claude.NewDesktop(claude.DesktopRoots())}
-	builder := workspace.Builder{Provider: provider, ExtraRepos: cfg.Repos}
-
 	branchSvc := branches.NewService(forge.DefaultDeps(cfg.Forges))
 	if cacheDir != "" {
 		branchSvc.Store = branches.NewDiskStore(cacheDir)
+	}
+	builder := workspace.Builder{
+		Provider:   provider,
+		ExtraRepos: cfg.Repos,
+		PRs: func(repo string) (map[string]*forge.PR, bool) {
+			prs, known := branchSvc.CachedPullRequests(repo)
+			return branches.BestPRs(prs), known
+		},
 	}
 	handler := server.New(builder.Build, server.OSLauncher{}, web.Dist(),
 		server.WithPlans(cli),

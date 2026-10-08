@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"workstation/internal/claude"
+	"workstation/internal/forge"
 )
 
 type fakeProvider struct {
@@ -192,5 +193,51 @@ func TestNormalize(t *testing.T) {
 	same := normalize(lower) == normalize(base)
 	if same != isCaseInsensitiveOS() {
 		t.Errorf("case-insensitive match = %v, want %v on this OS", same, isCaseInsensitiveOS())
+	}
+}
+
+func TestBuildAttachesPullRequestsToTheirWorktree(t *testing.T) {
+	f := newFixture(t)
+	pr := &forge.PR{Number: 7, Title: "Add feat", Source: "feat", State: forge.StateOpen}
+	asked := ""
+	ws, err := Builder{
+		Provider:   fakeProvider{},
+		ExtraRepos: []string{f.repo},
+		PRs: func(repo string) (map[string]*forge.PR, bool) {
+			asked = repo
+			return map[string]*forge.PR{"feat": pr, "main": {Number: 1, Source: "main"}}, true
+		},
+	}.Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := ws.Repos[0]
+	if asked != repo.Path || repo.PRsPending {
+		t.Fatalf("asked %q for %q, pending=%v", asked, repo.Path, repo.PRsPending)
+	}
+	main, feat := repo.Worktrees[0], repo.Worktrees[1]
+	if feat.PR == nil || feat.PR.Number != 7 {
+		t.Fatalf("feat should carry its PR: %+v", feat.PR)
+	}
+	if main.PR != nil {
+		t.Fatalf("the main worktree is not a piece of work and gets no PR: %+v", main.PR)
+	}
+	if feat.PR == pr {
+		t.Fatal("the worktree must hold a copy, not the cache's pointer")
+	}
+}
+
+func TestBuildMarksPullRequestsPendingUntilKnown(t *testing.T) {
+	f := newFixture(t)
+	ws, err := Builder{
+		Provider:   fakeProvider{},
+		ExtraRepos: []string{f.repo},
+		PRs:        func(string) (map[string]*forge.PR, bool) { return nil, false },
+	}.Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ws.Repos[0].PRsPending || ws.Repos[0].Worktrees[1].PR != nil {
+		t.Fatalf("unknown PRs must be flagged, not guessed: %+v", ws.Repos[0])
 	}
 }

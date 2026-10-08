@@ -82,6 +82,7 @@ const (
 	modeCacheOnly  mode = iota // never touch the network
 	modeRevalidate             // fresh cache as is; old cache served and refreshed in the background
 	modeForce                  // always fetch now
+	modeNoWait                 // never wait: serve what is known, and read the forge in the background when it is missing or old
 )
 
 // prResult is what a caller gets from the cache.
@@ -142,6 +143,14 @@ func (s *Service) PullRequests(repo string, refresh bool) ([]forge.PR, string) {
 	return s.pullRequests(repo, refresh)
 }
 
+// CachedPullRequests returns the pull requests already known for repo without
+// waiting for the forge. known is false until the first lookup has finished; a
+// missing or old entry starts a background read, so a later call has fresh data.
+func (s *Service) CachedPullRequests(repo string) (prs []forge.PR, known bool) {
+	d := s.prData(repo, modeNoWait)
+	return d.prs, d.known
+}
+
 // CleanupResponse is the cleanup preview plus non-fatal problems.
 type CleanupResponse struct {
 	CleanupPreview
@@ -188,6 +197,16 @@ func (s *Service) prData(repo string, m mode) prResult {
 	switch {
 	case m == modeCacheOnly:
 		return resultOf(c, ok, ok && !s.fresh(c))
+	case m == modeNoWait:
+		if ok && s.fresh(c) {
+			return resultOf(c, true, false)
+		}
+		s.bg.Add(1)
+		go func() {
+			defer s.bg.Done()
+			s.fetchShared(repo)
+		}()
+		return resultOf(c, ok, ok)
 	case m == modeForce || !ok:
 		return resultOf(s.fetchShared(repo), true, false)
 	case s.fresh(c):
