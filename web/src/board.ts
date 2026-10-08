@@ -109,6 +109,32 @@ export const wipCount = (tickets: Ticket[]): number => tickets.filter((t) => t.s
 export const wipLabel = (count: number, limit: number): string =>
   count > limit ? `${count} active tickets, limit ${limit}: park or finish one before starting more` : ''
 
+export interface Waiting {
+  id: string
+  label: string
+  done: boolean // that ticket is finished: it no longer holds this one back
+  known: boolean // false when the ticket is no longer in the list (its branch is gone)
+}
+
+/** A short name for a ticket: its key, else its title. */
+export const ticketLabel = (t: Pick<Ticket, 'key' | 'title'>): string => t.key || t.title
+
+/** What a ticket waits for, resolved against all the tickets. */
+export function waitingFor(t: Ticket, byId: ReadonlyMap<string, Ticket>): Waiting[] {
+  return t.blockedBy.map((id) => {
+    const other = byId.get(id)
+    if (!other) return { id, label: id.slice(id.lastIndexOf('|') + 1).replace(/^[a-z]+:/, ''), done: false, known: false }
+    return { id, label: ticketLabel(other), done: other.state === 'done', known: true }
+  })
+}
+
+/** True when it is blocked and everything it waited for is finished: a hint, it never unblocks itself. */
+export function canUnblock(t: Ticket, byId: ReadonlyMap<string, Ticket>): boolean {
+  if (t.state !== 'blocked') return false
+  const w = waitingFor(t, byId)
+  return w.length > 0 && w.every((x) => x.done)
+}
+
 export interface StateAction {
   label: string
   state: Exclude<EffectiveState, 'inbox'> | ''

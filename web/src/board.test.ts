@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { groupTickets, sectionOf, stateActions, wipCount, wipLabel } from './board'
+import { canUnblock, groupTickets, sectionOf, stateActions, waitingFor, wipCount, wipLabel } from './board'
 import { buildTickets, type Ticket } from './tickets'
 import type { Pr, Session, StoredTicket, TicketState, Worktree } from './types'
 
@@ -102,5 +102,37 @@ describe('stateActions', () => {
 
   it('a blocked ticket can be unblocked or parked', () => {
     expect(labels(ticket(wt('a'), 'blocked'))).toEqual(['Unblock', 'Park'])
+  })
+})
+
+describe('dependencies', () => {
+  const mk = (name: string, state: TicketState, blockedBy: string[] = []): Ticket => {
+    const w = wt(name)
+    const ref = `branch:${name}`
+    const stored: Record<string, StoredTicket> = { [`/r|${ref}`]: { id: `/r|${ref}`, repo: '/r', ref, state, blockedBy, created: ago(9), updated: ago(9) } }
+    return buildTickets([{ ...w, ticket: ref }], [], 'main', { repo: '/r', stored, now })[0]
+  }
+  const index = (...list: Ticket[]) => new Map(list.map((t) => [t.id, t]))
+
+  it('resolves what a ticket waits for, and says what is done or gone', () => {
+    const a = mk('a', 'done')
+    const b = mk('b', 'active')
+    const c = mk('c', 'blocked', [a.id, b.id, '/r|branch:vanished'])
+    expect(waitingFor(c, index(a, b, c)).map((w) => [w.label, w.done, w.known])).toEqual([
+      ['a', true, true],
+      ['b', false, true],
+      ['vanished', false, false],
+    ])
+  })
+
+  it('hints to unblock only when it is blocked and every dependency is done', () => {
+    const a = mk('a', 'done')
+    const b = mk('b', 'done')
+    const open = mk('open', 'active')
+    expect(canUnblock(mk('c', 'blocked', [a.id, b.id]), index(a, b))).toBe(true)
+    expect(canUnblock(mk('c', 'blocked', [a.id, open.id]), index(a, open))).toBe(false)
+    expect(canUnblock(mk('c', 'blocked', []), index())).toBe(false)
+    expect(canUnblock(mk('c', 'active', [a.id]), index(a))).toBe(false)
+    expect(canUnblock(mk('c', 'blocked', ['/r|branch:vanished']), index())).toBe(false)
   })
 })

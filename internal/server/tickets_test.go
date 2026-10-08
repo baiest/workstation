@@ -191,3 +191,27 @@ func TestBranchNodesCarryTheirTicket(t *testing.T) {
 		}
 	}
 }
+
+func TestDependenciesThroughTheAPI(t *testing.T) {
+	h, store, _ := ticketServer(t)
+	if code, body := post(h, "/api/tickets", map[string]any{"repo": "/r", "ref": "REG-2", "state": "blocked", "blockedReason": "waits", "blockedBy": []string{"/r|REG-1"}}); code != 200 {
+		t.Fatalf("%d %s", code, body)
+	}
+	if tk, _ := store.Get("/r|REG-2"); len(tk.BlockedBy) != 1 || tk.BlockedBy[0] != "/r|REG-1" {
+		t.Fatalf("%+v", tk)
+	}
+	for name, deps := range map[string][]string{
+		"a loop":           {"/r|REG-2"},
+		"itself":           {"/r|REG-1"},
+		"not an id":        {"REG-3"},
+		"a repo not known": {"/elsewhere|REG-3"},
+	} {
+		body := map[string]any{"repo": "/r", "ref": "REG-1", "blockedBy": deps}
+		if code, _ := post(h, "/api/tickets", body); code != 400 {
+			t.Errorf("%s: status %d, want 400", name, code)
+		}
+	}
+	if tk, _ := store.Get("/r|REG-1"); len(tk.BlockedBy) != 0 {
+		t.Fatalf("a refused dependency is not stored: %+v", tk)
+	}
+}

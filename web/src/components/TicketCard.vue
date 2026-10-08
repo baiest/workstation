@@ -6,11 +6,21 @@ import type { Ticket } from '../tickets'
 import type { Attention } from '../attention'
 import type { TriageAction } from '../api'
 import type { TicketState } from '../types'
+import type { Waiting } from '../board'
 import TicketRows from './TicketRows.vue'
 
 const props = withDefaults(
-  defineProps<{ ticket: Ticket; editor: string; now?: Date; repoName?: string; expanded?: boolean }>(),
-  { now: () => new Date(), repoName: '', expanded: true },
+  defineProps<{
+    ticket: Ticket
+    editor: string
+    now?: Date
+    repoName?: string
+    expanded?: boolean
+    waiting?: Waiting[]
+    unblockable?: boolean
+    candidates?: { id: string; label: string }[]
+  }>(),
+  { now: () => new Date(), repoName: '', expanded: true, waiting: () => [], unblockable: false, candidates: () => [] },
 )
 const emit = defineEmits<{
   state: [ticket: Ticket, state: TicketState, blockedReason?: string]
@@ -24,6 +34,7 @@ const emit = defineEmits<{
   sessions: [path: string]
   start: [ticket: Ticket]
   review: [ticket: Ticket]
+  depend: [ticket: Ticket, ids: string[]]
 }>()
 
 const t = computed(() => props.ticket)
@@ -47,6 +58,16 @@ const summary = computed(() => {
   return `${wts} worktree${wts === 1 ? '' : 's'} · ${t.value.items.length} branch${t.value.items.length === 1 ? '' : 'es'}`
 })
 const closedPrs = computed(() => t.value.done)
+
+// what it waits for: chips with a way to drop each, and a list to add one
+const adding = ref(false)
+const free = computed(() => props.candidates.filter((c) => c.id !== t.value.id && !t.value.blockedBy.includes(c.id)))
+function addDependency(id: string) {
+  adding.value = false
+  if (id) emit('depend', t.value, [...t.value.blockedBy, id])
+}
+const dropDependency = (id: string) =>
+  emit('depend', t.value, t.value.blockedBy.filter((x) => x !== id))
 
 // next step: click to edit, Ctrl/Cmd+Enter or leaving the box saves, Esc cancels
 const editingNext = ref(false)
@@ -160,6 +181,19 @@ function confirmBlock() {
       <button class="link" @click="confirmingDone = false">Not yet</button>
     </p>
 
+    <div v-if="waiting.length || adding" class="waiting" data-waiting>
+      <span class="muted">waits for</span>
+      <span v-for="w in waiting" :key="w.id" class="badge dep" :class="{ 'dep-done': w.done, 'dep-gone': !w.known }" :data-dep="w.id">
+        {{ w.label }}<template v-if="w.done"> ✓</template><template v-else-if="!w.known"> (gone)</template>
+        <button class="link" title="It no longer waits for this" data-drop-dep @click="dropDependency(w.id)">×</button>
+      </span>
+      <select v-if="adding" data-dep-select @change="addDependency(($event.target as HTMLSelectElement).value)" @blur="adding = false">
+        <option value="">choose a ticket…</option>
+        <option v-for="c in free" :key="c.id" :value="c.id">{{ c.label }}</option>
+      </select>
+      <span v-if="unblockable" class="unblockable" data-unblockable>everything it waited for is done: unblock it</span>
+    </div>
+
     <ul v-if="t.openDiscoveries.length" class="discoveries" data-discoveries>
       <li v-for="d in t.openDiscoveries" :key="d.id" class="discovery" :data-discovery="d.id">
         <span class="d-text clip" :title="d.text">🔎 {{ d.text }}</span>
@@ -186,6 +220,15 @@ function confirmBlock() {
       </button>
       <button v-if="canReview" data-review title="Open a read-only Claude session that reviews this work against the default branch" @click="emit('review', t)">Review</button>
       <span class="spacer" />
+      <button
+        v-if="canStart || t.state === 'blocked'"
+        class="link"
+        data-add-dep
+        title="This ticket cannot go on until another one is done"
+        @click="adding = true"
+      >
+        + waits for
+      </button>
       <input
         v-if="discovering"
         ref="discoverInput"

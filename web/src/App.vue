@@ -11,6 +11,7 @@ import SessionsModal from './components/SessionsModal.vue'
 import StageBoard from './components/StageBoard.vue'
 import TidyBar from './components/TidyBar.vue'
 import TicketBoard from './components/TicketBoard.vue'
+import DependencyGraph from './components/DependencyGraph.vue'
 import WorktreeCleanupModal from './components/WorktreeCleanupModal.vue'
 import ActiveSessions from './components/ActiveSessions.vue'
 import { activeSessions } from './active'
@@ -28,7 +29,7 @@ import { oneOf, pref, readPref, writePref } from './prefs'
 import { useWorkspace } from './useWorkspace'
 
 type Tab = 'worktrees' | 'branches'
-type View = 'tickets' | 'repos'
+type View = 'tickets' | 'deps' | 'repos'
 
 const TAB_KEY = 'workstation.tabs'
 const UNLINKED_LIMIT = 50
@@ -43,7 +44,7 @@ const wtCleanupFor = ref<Repo | null>(null)
 const sessionsFor = ref<Worktree | null>(null) // the worktree whose full session list is open
 
 // Which page is the main one: the tickets (default) or the repos with their worktrees and branches.
-const viewPref = pref<View>('workstation.view', 'tickets', oneOf<View>('tickets', 'repos'))
+const viewPref = pref<View>('workstation.view', 'tickets', oneOf<View>('tickets', 'deps', 'repos'))
 const view = viewPref.value
 
 // Projects the user hid, remembered per browser.
@@ -179,6 +180,7 @@ const target = (t: Ticket) => ({ repo: t.repo, ref: t.ref })
 const setState = (t: Ticket, state: TicketState, blockedReason?: string) =>
   saved('could not save', () => saveTicket(target(t), { state, ...(blockedReason !== undefined ? { blockedReason } : {}) }))
 const setNextStep = (t: Ticket, text: string) => saved('could not save', () => saveTicket(target(t), { nextStep: text }))
+const setDependencies = (t: Ticket, ids: string[]) => saved('could not save', () => saveTicket(target(t), { blockedBy: ids }))
 const noteDiscovery = (t: Ticket, text: string) => saved('could not save', () => addDiscovery(target(t), text))
 const triage = (t: Ticket, discoveryId: string, action: TriageAction) => saved('could not save', () => triageDiscovery(t.id, discoveryId, action))
 const dismiss = (sessionId: string) => saved('could not dismiss', () => dismissSession(sessionId, true))
@@ -276,9 +278,10 @@ onBeforeUnmount(() => {
     <h1>workstation</h1>
     <span class="views" role="group" aria-label="View">
       <button data-view="tickets" :class="{ active: view === 'tickets' }" @click="viewPref.set('tickets')">Tickets</button>
+      <button data-view="deps" :class="{ active: view === 'deps' }" title="Which ticket waits for which" @click="viewPref.set('deps')">Dependencies</button>
       <button data-view="repos" :class="{ active: view === 'repos' }" @click="viewPref.set('repos')">Repos</button>
     </span>
-    <input ref="filterEl" v-model="query" class="filter" :placeholder="view === 'tickets' ? 'Filter tickets   ( / )' : 'Filter worktrees   ( / )'" spellcheck="false" />
+    <input ref="filterEl" v-model="query" class="filter" :placeholder="view === 'repos' ? 'Filter worktrees   ( / )' : 'Filter tickets   ( / )'" spellcheck="false" />
     <span v-if="data" class="session-summary" aria-label="Claude sessions">
       <span v-if="sessionSummary.waiting" class="chip attention" title="Claude finished its turn: it is waiting for your next message">
         {{ sessionSummary.waiting }} waiting for you
@@ -330,6 +333,8 @@ onBeforeUnmount(() => {
       @dismiss="(id) => dismiss(id)"
     />
 
+    <DependencyGraph v-if="view === 'deps' && data" :tickets="allTickets" :repo-names="repoNames" />
+
     <TicketBoard
       v-if="view === 'tickets' && data"
       :tickets="allTickets"
@@ -345,6 +350,7 @@ onBeforeUnmount(() => {
       @resume="(id) => resumeSession(id)"
       @plan="(id, title) => (planFor = { id, title })"
       @sessions="(p) => openSessionsByPath(p)"
+      @depend="(t, ids) => setDependencies(t, ids)"
       @start="(t) => startTicket(t)"
       @review="(t) => reviewTicket(t)"
     />

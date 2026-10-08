@@ -101,3 +101,73 @@ export function edgePath(from: { x: number; y: number }, to: { x: number; y: num
   const mid = x1 + (x2 - x1) / 2
   return `M ${x1} ${y1} C ${mid} ${y1}, ${mid} ${y2}, ${x2} ${y2}`
 }
+
+export interface DagNode {
+  id: string
+  deps: string[] // ids this node waits for: edges go from each of them to it
+}
+
+export interface DagLayout {
+  positions: Map<string, Position>
+  edges: { from: string; to: string }[]
+  width: number
+  height: number
+}
+
+/**
+ * Layered left-to-right layout of a dependency graph: a node sits one column
+ * right of the furthest of the nodes it waits for, so every edge points forward.
+ * Dependencies on nodes that are not in the list are ignored, and a cycle (the
+ * server refuses them, but data can be old) cannot hang it: its nodes are placed
+ * by the longest chain that does not revisit a node.
+ */
+export function layoutDag(nodes: DagNode[], o: LayoutOptions): DagLayout {
+  const positions = new Map<string, Position>()
+  if (nodes.length === 0) return { positions, edges: [], width: 0, height: 0 }
+
+  const ids = new Set(nodes.map((n) => n.id))
+  const deps = new Map(nodes.map((n) => [n.id, [...new Set(n.deps)].filter((d) => ids.has(d) && d !== n.id)]))
+
+  const col = new Map<string, number>()
+  const depth = (id: string, path: Set<string>): number => {
+    const known = col.get(id)
+    if (known !== undefined) return known
+    if (path.has(id)) return 0
+    path.add(id)
+    const c = Math.max(-1, ...(deps.get(id) ?? []).map((d) => depth(d, path))) + 1
+    path.delete(id)
+    col.set(id, c)
+    return c
+  }
+  for (const n of nodes) depth(n.id, new Set())
+
+  // rows: in each column, keep the order of the input, but pull a node towards the average row of what it waits for
+  const columns = new Map<number, string[]>()
+  for (const n of nodes) columns.set(col.get(n.id)!, [...(columns.get(col.get(n.id)!) ?? []), n.id])
+  const row = new Map<string, number>()
+  const cols = [...columns.keys()].sort((a, b) => a - b)
+  for (const c of cols) {
+    const want = (id: string) => {
+      const rows = (deps.get(id) ?? []).map((d) => row.get(d)).filter((r): r is number => r !== undefined)
+      return rows.length ? rows.reduce((a, b) => a + b, 0) / rows.length : Infinity
+    }
+    const order = columns.get(c)!.map((id, i) => ({ id, i, w: want(id) }))
+    order.sort((a, b) => (a.w === b.w ? a.i - b.i : a.w - b.w))
+    order.forEach((e, r) => row.set(e.id, r))
+  }
+
+  for (const n of nodes) {
+    const c = col.get(n.id)!
+    const r = row.get(n.id)!
+    positions.set(n.id, { col: c, row: r, x: c * (o.nodeW + o.gapX), y: r * (o.nodeH + o.gapY) })
+  }
+  const edges = nodes.flatMap((n) => (deps.get(n.id) ?? []).map((from) => ({ from, to: n.id })))
+  const maxCol = Math.max(...cols)
+  const maxRow = Math.max(...[...row.values()])
+  return {
+    positions,
+    edges,
+    width: (maxCol + 1) * o.nodeW + maxCol * o.gapX,
+    height: (maxRow + 1) * o.nodeH + maxRow * o.gapY,
+  }
+}

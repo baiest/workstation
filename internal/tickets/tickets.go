@@ -64,6 +64,7 @@ const (
 	MaxBlocked       = 200
 	MaxDiscovery     = 300
 	MaxDiscoveries   = 50
+	MaxBlockedBy     = 10
 	MaxTickets       = 2000
 	MaxDismissed     = 1000
 	maxFile          = 4 << 20
@@ -94,6 +95,7 @@ type Ticket struct {
 	Title         string      `json:"title,omitempty"`
 	State         State       `json:"state,omitempty"`
 	BlockedReason string      `json:"blockedReason,omitempty"`
+	BlockedBy     []string    `json:"blockedBy,omitempty"` // ids of the tickets this one waits for
 	NextStep      string      `json:"nextStep,omitempty"`
 	Discoveries   []Discovery `json:"discoveries,omitempty"`
 	Created       time.Time   `json:"created"`
@@ -107,6 +109,7 @@ type Update struct {
 	Title         *string
 	State         *State
 	BlockedReason *string
+	BlockedBy     *[]string // replaces the whole list
 	NextStep      *string
 }
 
@@ -282,7 +285,7 @@ func (s *Store) entry(repo, ref string) (*Ticket, error) {
 // prune drops a ticket that carries no decision and no text, so the store only
 // holds what a human wrote.
 func (s *Store) prune(t *Ticket) {
-	if t.State == StateInbox && t.Title == "" && t.NextStep == "" && t.BlockedReason == "" && t.Branch == "" && len(t.Discoveries) == 0 {
+	if t.State == StateInbox && t.Title == "" && t.NextStep == "" && t.BlockedReason == "" && t.Branch == "" && len(t.Discoveries) == 0 && len(t.BlockedBy) == 0 {
 		delete(s.data.Tickets, t.ID)
 	}
 }
@@ -317,12 +320,25 @@ func (s *Store) Apply(u Update) (Ticket, error) {
 	if u.State != nil && !validStates[*u.State] {
 		return Ticket{}, fmt.Errorf("unknown state %q", *u.State)
 	}
+	var deps []string
+	if u.BlockedBy != nil {
+		var err error
+		if deps, err = cleanDeps(*u.BlockedBy); err != nil {
+			return Ticket{}, err
+		}
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	t, err := s.entry(u.Repo, u.Ref)
 	if err != nil {
 		return Ticket{}, err
+	}
+	if u.BlockedBy != nil { // checked before anything changes: a refused update changes nothing
+		if err := s.checkNoCycle(t.ID, deps); err != nil {
+			s.prune(t)
+			return Ticket{}, err
+		}
 	}
 	if u.Title != nil {
 		t.Title = title
@@ -336,6 +352,9 @@ func (s *Store) Apply(u Update) (Ticket, error) {
 	if u.Branch != nil {
 		t.Branch = branch
 	}
+	if u.BlockedBy != nil {
+		t.BlockedBy = deps
+	}
 	if u.State != nil {
 		t.State = *u.State
 		if t.State != StateBlocked && u.BlockedReason == nil {
@@ -347,6 +366,61 @@ func (s *Store) Apply(u Update) (Ticket, error) {
 	cp.Discoveries = append([]Discovery(nil), t.Discoveries...)
 	s.prune(t)
 	return cp, s.save()
+}
+
+// cleanDeps validates a dependency list: ids built by ID, no repeats, no more than MaxBlockedBy.
+func cleanDeps(in []string) ([]string, error) {
+	if len(in) > MaxBlockedBy {
+		return nil, fmt.Errorf("a ticket can wait for at most %d others", MaxBlockedBy)
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, id := range in {
+		repo, ref, ok := SplitID(id)
+		if !ok || repo == "" || !ValidRef(ref) {
+			return nil, fmt.Errorf("invalid ticket id %q", id)
+		}
+		if !seen[id] {
+			seen[id] = true
+			out = append(out, id)
+		}
+	}
+	return out, nil
+}
+
+// checkNoCycle refuses dependencies that would make a ticket wait, directly or
+// through others, for itself. Only stored tickets can have dependencies.
+func (s *Store) checkNoCycle(id string, deps []string) error {
+	for _, d := range deps {
+		if d == id {
+			return errors.New("a ticket cannot wait for itself")
+		}
+	}
+	seen := map[string]bool{}
+	var reaches func(from string) bool
+	reaches = func(from string) bool {
+		if from == id {
+			return true
+		}
+		if seen[from] {
+			return false
+		}
+		seen[from] = true
+		if t, ok := s.data.Tickets[from]; ok {
+			for _, next := range t.BlockedBy {
+				if reaches(next) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	for _, d := range deps {
+		if reaches(d) {
+			return errors.New("that would be a loop: the other ticket already waits for this one")
+		}
+	}
+	return nil
 }
 
 func newID() string {

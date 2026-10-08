@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive } from 'vue'
-import { COLLAPSED, groupTickets, sectionHint, sectionTitle, wipCount, wipLabel, type SectionId } from '../board'
+import { COLLAPSED, canUnblock, groupTickets, sectionHint, sectionTitle, ticketLabel, waitingFor, wipCount, wipLabel, type SectionId } from '../board'
 import type { Ticket } from '../tickets'
 import type { TriageAction } from '../api'
 import type { TicketState } from '../types'
@@ -22,12 +22,21 @@ const emit = defineEmits<{
   sessions: [path: string]
   start: [ticket: Ticket]
   review: [ticket: Ticket]
+  depend: [ticket: Ticket, ids: string[]]
 }>()
 
 const sections = computed(() => groupTickets(props.tickets, props.now))
 const wip = computed(() => wipLabel(wipCount(props.tickets), props.wipLimit))
 // With more than one project, say which one a ticket belongs to.
 const showRepo = computed(() => new Set(props.tickets.map((t) => t.repo)).size > 1)
+
+const byId = computed(() => new Map(props.tickets.map((t) => [t.id, t])))
+// a ticket may wait for any other that is still in play
+const candidates = computed(() =>
+  props.tickets
+    .filter((t) => t.state !== 'done' && t.state !== 'ignored')
+    .map((t) => ({ id: t.id, label: (showRepo.value ? `${props.repoNames[t.repo] ?? ''}: ` : '') + ticketLabel(t) })),
+)
 
 const open = reactive<Partial<Record<SectionId, boolean>>>({})
 const isOpen = (s: SectionId) => (COLLAPSED.has(s) ? !!open[s] : open[s] !== false)
@@ -65,6 +74,10 @@ const toggle = (s: SectionId) => (open[s] = !isOpen(s))
           @resume="(id) => emit('resume', id)"
           @plan="(id, title) => emit('plan', id, title)"
           @sessions="(p) => emit('sessions', p)"
+          :waiting="waitingFor(t, byId)"
+          :unblockable="canUnblock(t, byId)"
+          :candidates="candidates"
+          @depend="(t2, ids) => emit('depend', t2, ids)"
           @start="(t2) => emit('start', t2)"
           @review="(t2) => emit('review', t2)"
         />

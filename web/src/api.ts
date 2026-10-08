@@ -93,6 +93,7 @@ export interface TicketPatch {
   state?: TicketState
   nextStep?: string
   blockedReason?: string
+  blockedBy?: string[]
   branch?: string
 }
 

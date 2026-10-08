@@ -231,6 +231,7 @@ export interface StoredTicket {
   title?: string
   state?: TicketState
   blockedReason?: string
+  blockedBy?: string[]
   nextStep?: string
   discoveries?: Discovery[]
   created: string

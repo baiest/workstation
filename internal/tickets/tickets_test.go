@@ -308,3 +308,76 @@ func TestInMemoryStoreWritesNothing(t *testing.T) {
 		t.Fatal("kept in memory")
 	}
 }
+
+func ids(refs ...string) *[]string {
+	out := make([]string, len(refs))
+	for i, r := range refs {
+		out[i] = ID("/r", r)
+	}
+	return &out
+}
+
+func TestBlockedByIsStoredCleanedAndLimited(t *testing.T) {
+	s, _ := newStore(t)
+	got, err := s.Apply(Update{Repo: "/r", Ref: "REG-2", State: st(StateBlocked), BlockedBy: ids("REG-1", "REG-1", "REG-3")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.BlockedBy) != 2 || got.BlockedBy[0] != "/r|REG-1" || got.BlockedBy[1] != "/r|REG-3" {
+		t.Fatalf("repeats are one dependency: %v", got.BlockedBy)
+	}
+	if again, _ := s.Apply(Update{Repo: "/r", Ref: "REG-2", Title: sp("x")}); len(again.BlockedBy) != 2 {
+		t.Fatal("an update that does not mention dependencies keeps them")
+	}
+	if cleared, _ := s.Apply(Update{Repo: "/r", Ref: "REG-2", BlockedBy: &[]string{}}); len(cleared.BlockedBy) != 0 {
+		t.Fatal("an empty list clears them")
+	}
+
+	many := make([]string, MaxBlockedBy+1)
+	for i := range many {
+		many[i] = ID("/r", "REG-"+string(rune('a'+i)))
+	}
+	for name, bad := range map[string][]string{"too many": many, "not an id": {"nope"}, "empty ref": {"/r|"}} {
+		if _, err := s.Apply(Update{Repo: "/r", Ref: "REG-2", BlockedBy: &bad}); err == nil {
+			t.Errorf("%s: expected an error", name)
+		}
+	}
+}
+
+func TestBlockedByRefusesLoops(t *testing.T) {
+	s, _ := newStore(t)
+	apply := func(ref string, on ...string) error {
+		_, err := s.Apply(Update{Repo: "/r", Ref: ref, BlockedBy: ids(on...)})
+		return err
+	}
+	if err := apply("B", "A"); err != nil {
+		t.Fatal(err)
+	}
+	if err := apply("C", "B"); err != nil {
+		t.Fatal(err)
+	}
+	if err := apply("A", "A"); err == nil {
+		t.Fatal("waiting for itself")
+	}
+	if err := apply("A", "C"); err == nil {
+		t.Fatal("A waits for C waits for B waits for A: a loop")
+	}
+	if err := apply("D", "B", "C"); err != nil {
+		t.Fatalf("two paths to the same ticket are not a loop: %v", err)
+	}
+	if _, ok := s.Get("/r|A"); ok {
+		t.Fatal("a refused update must not leave a ticket behind")
+	}
+}
+
+func TestARefusedUpdateChangesNothing(t *testing.T) {
+	s, _ := newStore(t)
+	_, _ = s.Apply(Update{Repo: "/r", Ref: "B", BlockedBy: ids("A")})
+	_, _ = s.Apply(Update{Repo: "/r", Ref: "A", NextStep: sp("keep me")})
+	if _, err := s.Apply(Update{Repo: "/r", Ref: "A", NextStep: sp("lost"), BlockedBy: ids("B")}); err == nil {
+		t.Fatal("expected a loop")
+	}
+	if a, _ := s.Get("/r|A"); a.NextStep != "keep me" {
+		t.Fatalf("the rest of a refused update must not apply: %+v", a)
+	}
+}

@@ -160,6 +160,7 @@ type ticketUpdateRequest struct {
 	State         *tickets.State `json:"state"`
 	BlockedReason *string        `json:"blockedReason"`
 	NextStep      *string        `json:"nextStep"`
+	BlockedBy     *[]string      `json:"blockedBy"`
 	Branch        *string        `json:"branch"`
 }
 
@@ -174,9 +175,20 @@ func (s *Server) handleTicketsSet(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	if req.BlockedBy != nil {
+		for _, id := range *req.BlockedBy {
+			if r, _, ok := tickets.SplitID(id); !ok {
+				http.Error(w, "invalid ticket id", http.StatusBadRequest)
+				return
+			} else if _, known := findRepo(ws, r); !known {
+				http.Error(w, "unknown repo in a dependency", http.StatusBadRequest)
+				return
+			}
+		}
+	}
 	t, err := s.tickets.Apply(tickets.Update{
 		Repo: repo, Ref: ref, Title: req.Title, State: req.State,
-		BlockedReason: req.BlockedReason, NextStep: req.NextStep, Branch: req.Branch,
+		BlockedReason: req.BlockedReason, BlockedBy: req.BlockedBy, NextStep: req.NextStep, Branch: req.Branch,
 	})
 	replyTicket(w, t, err)
 }

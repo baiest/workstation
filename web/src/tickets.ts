@@ -37,6 +37,7 @@ export interface Ticket {
   stored?: StoredTicket
   nextStep: string
   blockedReason: string
+  blockedBy: string[] // ids of the tickets it waits for
   openDiscoveries: Discovery[]
 }
 
@@ -159,6 +160,7 @@ export function buildTickets(worktrees: Worktree[], nodes: BranchNode[], default
       stored,
       nextStep: stored?.nextStep ?? '',
       blockedReason: stored?.blockedReason ?? '',
+      blockedBy: stored?.blockedBy ?? [],
       openDiscoveries: (stored?.discoveries ?? []).filter((d) => d.status === 'open'),
     }
   })

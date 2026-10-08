@@ -144,6 +144,26 @@ describe('TicketCard', () => {
     expect(w.find('[data-review]').exists()).toBe(false)
   })
 
+  it('shows what it waits for, lets you drop it, and hints when everything is done', async () => {
+    const waiting = [{ id: '/r|A', label: 'REG-8', done: true, known: true }, { id: '/r|B', label: 'REG-9', done: false, known: true }]
+    const w = render(ticket({ state: 'blocked', blockedBy: ['/r|A', '/r|B'] }), { waiting, unblockable: false })
+    expect(w.findAll('[data-dep]').map((e) => e.attributes('data-dep'))).toEqual(['/r|A', '/r|B'])
+    expect(w.get('[data-dep="/r|A"]').classes()).toContain('dep-done')
+    await w.get('[data-dep="/r|A"] [data-drop-dep]').trigger('click')
+    expect(w.emitted('depend')![0]).toEqual([expect.objectContaining({ ref: 'REG-1' }), ['/r|B']])
+    expect(w.find('[data-unblockable]').exists()).toBe(false)
+    expect(render(ticket({ state: 'blocked' }), { waiting, unblockable: true }).get('[data-unblockable]').text()).toContain('unblock')
+  })
+
+  it('adds a dependency from the other tickets, never itself or one it already has', async () => {
+    const candidates = [{ id: '/r|REG-1', label: 'itself' }, { id: '/r|A', label: 'REG-8' }, { id: '/r|B', label: 'REG-9' }]
+    const w = render(ticket({ state: 'blocked', blockedBy: ['/r|B'] }), { candidates })
+    await w.get('[data-add-dep]').trigger('click')
+    expect(w.findAll('[data-dep-select] option').map((o) => o.text())).toEqual(['choose a ticket…', 'REG-8'])
+    await w.get('[data-dep-select]').setValue('/r|A')
+    expect(w.emitted('depend')![0]).toEqual([expect.objectContaining({ ref: 'REG-1' }), ['/r|B', '/r|A']])
+  })
+
   it('names the project when asked to', () => {
     expect(render(ticket(), { repoName: 'Loyall' }).get('.repo-badge').text()).toBe('Loyall')
     expect(render(ticket()).find('.repo-badge').exists()).toBe(false)

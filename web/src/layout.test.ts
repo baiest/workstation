@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { edgePath, layoutTree } from './layout'
+import { edgePath, layoutDag, layoutTree } from './layout'
 
 const opts = { nodeW: 100, nodeH: 40, gapX: 20, gapY: 10 }
 const n = (branch: string, parent?: string, isDefault = false) => ({ branch, parent, isDefault })
@@ -59,5 +59,46 @@ describe('edgePath', () => {
   it('draws a curve from the right edge of the parent to the left edge of the child', () => {
     const d = edgePath({ x: 0, y: 25 }, { x: 120, y: 75 }, 100, 40)
     expect(d).toBe('M 100 45 C 110 45, 110 95, 120 95')
+  })
+})
+
+describe('layoutDag', () => {
+  const o = { nodeW: 10, nodeH: 4, gapX: 2, gapY: 1 }
+
+  it('puts a node one column right of the furthest thing it waits for', () => {
+    const l = layoutDag(
+      [
+        { id: 'a', deps: [] },
+        { id: 'b', deps: ['a'] },
+        { id: 'c', deps: ['a', 'b'] },
+        { id: 'd', deps: [] },
+      ],
+      o,
+    )
+    expect([...'abcd'].map((id) => l.positions.get(id)!.col)).toEqual([0, 1, 2, 0])
+    expect(l.edges).toEqual([
+      { from: 'a', to: 'b' },
+      { from: 'a', to: 'c' },
+      { from: 'b', to: 'c' },
+    ])
+    expect(l.width).toBe(3 * 10 + 2 * 2)
+  })
+
+  it('never lets two nodes share a place', () => {
+    const l = layoutDag([{ id: 'a', deps: [] }, { id: 'b', deps: [] }, { id: 'c', deps: ['a'] }, { id: 'd', deps: ['a'] }], o)
+    const seen = new Set([...l.positions.values()].map((p) => `${p.col}:${p.row}`))
+    expect(seen.size).toBe(4)
+  })
+
+  it('ignores dependencies outside the list and on itself, and survives a cycle', () => {
+    const l = layoutDag([{ id: 'a', deps: ['zzz', 'a'] }], o)
+    expect(l.positions.get('a')!.col).toBe(0)
+    expect(l.edges).toEqual([])
+    const loop = layoutDag([{ id: 'a', deps: ['b'] }, { id: 'b', deps: ['a'] }], o)
+    expect(loop.positions.size).toBe(2)
+  })
+
+  it('is empty for nothing', () => {
+    expect(layoutDag([], o)).toEqual({ positions: new Map(), edges: [], width: 0, height: 0 })
   })
 })
