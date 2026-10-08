@@ -1,6 +1,7 @@
 // Which sessions just started needing you, for browser notifications and the
 // tab title. Pure: the app compares two snapshots.
 import { sessionTitle } from './format'
+import { needsYou, sessionAttention } from './attention'
 import { ticketKey } from './worktrees'
 import type { Repo, Session, Unlinked } from './types'
 
@@ -56,11 +57,12 @@ export function transitions(
   return events
 }
 
-/** How many live sessions wait for you now (shown in the tab title). */
-export function needsYouCount(repos: Repo[], unlinked: Unlinked[]): number {
+/** How many live sessions need you now (shown in the tab title). Stale ones do not count. */
+export function needsYouCount(repos: Repo[], unlinked: Unlinked[], now: Date = new Date()): number {
   let n = 0
   for (const { session } of collect(repos, unlinked).values()) {
-    if ((session.state === 'waiting' || session.state === 'needs-approval') && session.status !== 'stopped') n++
+    const a = sessionAttention(session, now)
+    if (needsYou(a) && a !== 'failed') n++
   }
   return n
 }

@@ -21,8 +21,12 @@ const pr = (over: Partial<Pr> = {}): Pr => ({
 
 describe('stageOf', () => {
   it('needs-you when Claude waits for you, or may need approval', () => {
-    expect(stageOf(wt({ sessions: [session({ state: 'waiting', status: 'idle' })] }), undefined, now)).toBe('needs-you')
-    expect(stageOf(wt({ sessions: [session({ state: 'needs-approval', status: 'working' })] }), undefined, now)).toBe('needs-you')
+    expect(stageOf(wt({ sessions: [session({ state: 'waiting', status: 'idle', lastActivity: ago(0.04) })] }), undefined, now)).toBe('needs-you')
+    expect(stageOf(wt({ sessions: [session({ state: 'needs-approval', status: 'working', lastActivity: ago(0.04) })] }), undefined, now)).toBe('needs-you')
+  })
+
+  it('a session that has waited for hours no longer needs you', () => {
+    expect(stageOf(wt({ sessions: [session({ state: 'waiting', status: 'idle', lastActivity: ago(0.5) })] }), undefined, now)).toBe('in-progress')
   })
 
   it('a failure needs you only while it is recent', () => {

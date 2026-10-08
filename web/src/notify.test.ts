@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { needsYouCount, transitions } from './notify'
 import type { Repo, Session, Worktree } from './types'
 
+const now = new Date('2026-10-02T12:00:00Z')
+
 const s = (id: string, state: Session['state'], over: Partial<Session> = {}): Session => ({
   id, source: 'cli', cwd: '/w', status: 'idle', state, lastActivity: '2026-10-02T11:00:00Z', resumable: true, hasPlan: false, title: `chat ${id}`, ...over,
 })
@@ -39,6 +41,11 @@ describe('transitions', () => {
 
 describe('needsYouCount', () => {
   it('counts sessions that wait or may need approval, for the tab title', () => {
-    expect(needsYouCount(repos([s('a', 'waiting'), s('b', 'thinking'), s('c', 'needs-approval')]), [])).toBe(2)
+    expect(needsYouCount(repos([s('a', 'waiting'), s('b', 'thinking'), s('c', 'needs-approval')]), [], now)).toBe(2)
+  })
+
+  it('does not count a session that has been waiting for hours', () => {
+    const old = s('old', 'waiting', { lastActivity: '2026-10-02T06:00:00Z' })
+    expect(needsYouCount(repos([old, s('fresh', 'waiting')]), [], now)).toBe(1)
   })
 })

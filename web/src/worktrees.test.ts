@@ -78,43 +78,61 @@ describe('mergedHint', () => {
 })
 
 describe('attentionScore', () => {
-  it('ranks live work > uncommitted changes > open PR > nothing > merged', () => {
-    const working = attentionScore(wt({ sessions: [session({ status: 'working' })] }), undefined)
-    const dirty = attentionScore(wt({ git: { ...wt().git, dirty: true } }), undefined)
-    const open = attentionScore(wt(), pr())
-    const nothing = attentionScore(wt(), undefined)
-    const merged = attentionScore(wt(), pr({ state: 'merged' }))
-    expect(working).toBeGreaterThan(dirty)
-    expect(dirty).toBeGreaterThan(open)
+  const waiting = (over: Partial<Session> = {}) => session({ status: 'idle', state: 'waiting', lastActivity: '2026-10-02T11:30:00Z', ...over })
+
+  it('ranks what waits for you > uncommitted changes > Claude working > open PR > nothing > merged', () => {
+    const asks = attentionScore(wt({ sessions: [waiting({ lastMessage: 'Which one?' })] }), undefined, now)
+    const dirty = attentionScore(wt({ git: { ...wt().git, dirty: true } }), undefined, now)
+    const working = attentionScore(wt({ sessions: [session({ status: 'working' })] }), undefined, now)
+    const open = attentionScore(wt(), pr(), now)
+    const nothing = attentionScore(wt(), undefined, now)
+    const merged = attentionScore(wt(), pr({ state: 'merged' }), now)
+    expect(asks).toBeGreaterThan(dirty)
+    expect(dirty).toBeGreaterThan(working)
+    expect(working).toBeGreaterThan(open)
     expect(open).toBeGreaterThan(nothing)
     expect(nothing).toBeGreaterThan(merged)
   })
 
+  it('a question outranks a plain finished turn, and a long wait counts for little', () => {
+    const asks = attentionScore(wt({ sessions: [waiting({ lastMessage: 'Which one?' })] }), undefined, now)
+    const done = attentionScore(wt({ sessions: [waiting({ lastMessage: 'Done.' })] }), undefined, now)
+    const stale = attentionScore(wt({ sessions: [waiting({ lastActivity: '2026-10-02T06:00:00Z' })] }), undefined, now)
+    expect(asks).toBeGreaterThan(done)
+    expect(done).toBeGreaterThan(stale)
+  })
+
   it('does not bury a merged PR that still has work in it', () => {
-    const dirtyMerged = attentionScore(wt({ git: { ...wt().git, dirty: true } }), pr({ state: 'merged' }))
-    expect(dirtyMerged).toBeGreaterThan(attentionScore(wt(), pr({ state: 'merged' })))
+    const dirtyMerged = attentionScore(wt({ git: { ...wt().git, dirty: true } }), pr({ state: 'merged' }), now)
+    expect(dirtyMerged).toBeGreaterThan(attentionScore(wt(), pr({ state: 'merged' }), now))
   })
 })
 
 describe('summarizeSessions', () => {
   const repo = (...worktrees: Worktree[]) => ({ name: 'r', path: '/r', worktrees })
-  const w = (state: Session['state'], heuristic = false) => wt({ sessions: [session({ state, stateHeuristic: heuristic })] })
+  const w = (state: Session['state'], over: Partial<Session> = {}) =>
+    wt({ sessions: [session({ state, stateHeuristic: state === 'needs-approval', status: 'idle', lastActivity: '2026-10-02T11:30:00Z', ...over })] })
+  const zero = { waiting: 0, working: 0, failed: 0, approval: 0, stale: 0 }
 
-  it('counts the newest session of each worktree by what the user must do', () => {
-    const got = summarizeSessions([
-      repo(w('waiting'), w('waiting'), w('thinking'), w('running-tool'), w('failed')),
-      repo(w('needs-approval', true), w('finished'), w('stopped'), wt({ name: 'no-session' })),
-    ])
-    expect(got).toEqual({ waiting: 2, working: 2, failed: 1, approval: 1 })
+  it('counts each worktree by the most urgent thing its sessions ask of you', () => {
+    const got = summarizeSessions(
+      [repo(w('waiting'), w('waiting'), w('thinking'), w('running-tool'), w('failed')), repo(w('needs-approval'), w('finished'), w('stopped'), wt({ name: 'no-session' }))],
+      now,
+    )
+    expect(got).toEqual({ ...zero, waiting: 2, working: 2, failed: 1, approval: 1 })
   })
 
-  it('only looks at the newest session of a worktree, not older ones', () => {
-    const two = wt({ sessions: [session({ state: 'finished' }), session({ id: 'old', state: 'failed' })] })
-    expect(summarizeSessions([repo(two)])).toEqual({ waiting: 0, working: 0, failed: 0, approval: 0 })
+  it('counts a long wait as stale, not as waiting for you', () => {
+    expect(summarizeSessions([repo(w('waiting', { lastActivity: '2026-10-02T06:00:00Z' }))], now)).toEqual({ ...zero, stale: 1 })
+  })
+
+  it('an old failure of a superseded session stays quiet', () => {
+    const two = wt({ sessions: [session({ state: 'finished' }), session({ id: 'old', state: 'failed', lastActivity: '2026-10-02T11:00:00Z' })] })
+    expect(summarizeSessions([repo(two)], now)).toEqual(zero)
   })
 
   it('is all zeros for nothing', () => {
-    expect(summarizeSessions([])).toEqual({ waiting: 0, working: 0, failed: 0, approval: 0 })
+    expect(summarizeSessions([], now)).toEqual(zero)
   })
 })
 

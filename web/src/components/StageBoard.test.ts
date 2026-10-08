@@ -11,7 +11,7 @@ const wt = (name: string, days: number, sessions: Session[] = [], isMain = false
     lastCommit: { hash: 'h', subject: 's', date: ago(days) } },
   sessions,
 })
-const waiting: Session = { id: 's', source: 'cli', cwd: '/w', status: 'idle', state: 'waiting', lastActivity: ago(0.1), resumable: true, hasPlan: false }
+const waiting: Session = { id: 's', source: 'cli', cwd: '/w', status: 'idle', state: 'waiting', lastActivity: ago(0.04), resumable: true, hasPlan: false }
 
 const board = (list: Worktree[]) =>
   mount(StageBoard, { props: { worktrees: list, editor: 'cursor', prFor: () => undefined, now } })

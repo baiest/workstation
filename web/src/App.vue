@@ -312,6 +312,7 @@ onBeforeUnmount(() => {
       <span v-if="sessionSummary.approval" class="chip attention" title="A tool request has had no result for a while (a guess)">
         {{ sessionSummary.approval }} may need approval
       </span>
+      <span v-if="sessionSummary.stale" class="chip" title="Waiting for hours: probably finished with. Close the claude process once you have what you need">{{ sessionSummary.stale }} stale</span>
       <span v-if="sessionSummary.working" class="chip working" title="Thinking or running a tool">{{ sessionSummary.working }} working</span>
       <span v-if="sessionSummary.failed" class="chip danger" title="The last thing recorded was an API error">{{ sessionSummary.failed }} failed</span>
     </span>

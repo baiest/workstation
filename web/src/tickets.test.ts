@@ -92,7 +92,7 @@ describe('buildTickets', () => {
     expect(bare[0].title).toBe('REG-1-solo')
   })
 
-  it('orders tickets: needs attention first, then newest, finished ones last', () => {
+  it('orders tickets: uncommitted work first, then newest, finished ones last', () => {
     const tickets = buildTickets(
       [
         wt('w-dirty', 'REG-1-dirty', { git: { ...wt('x', 'y').git, dirty: true, modified: 1 } }),
@@ -106,7 +106,7 @@ describe('buildTickets', () => {
       ],
       'main',
     )
-    expect(tickets.map((t) => t.key)).toEqual(['REG-4', 'REG-1', 'REG-2', 'REG-3'])
+    expect(tickets.map((t) => t.key)).toEqual(['REG-1', 'REG-4', 'REG-2', 'REG-3'])
     expect(tickets[3].done).toBe(true)
     expect(tickets[0].done).toBe(false)
   })

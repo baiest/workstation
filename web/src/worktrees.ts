@@ -1,5 +1,6 @@
 // Helpers to make sense of a pile of worktrees: ticket keys, freshness, what
 // needs attention, what is safe to remove, and ordering. Pure, no DOM.
+import { worktreeSessionAttention } from './attention'
 import type { Pr, Worktree } from './types'
 
 const DAY = 24 * 3600 * 1000
@@ -37,11 +38,11 @@ export function mergedHint(w: Worktree, pr?: Pr): boolean {
   return !!pr && pr.state === 'merged' && !w.isMain && !w.gitError && !w.git.dirty && !isLive(w)
 }
 
-/** Higher = look at it sooner. */
-export function attentionScore(w: Worktree, pr?: Pr): number {
-  let score = 0
-  if (w.sessions.some((s) => s.status === 'working')) score += 100
-  else if (isLive(w)) score += 60
+const sessionScore = { 'asks-you': 200, approval: 190, failed: 180, 'review-output': 150, working: 40, stale: 10, none: 0 } as const
+
+/** Higher = look at it sooner. What waits for you comes before what runs by itself. */
+export function attentionScore(w: Worktree, pr?: Pr, now: Date = new Date()): number {
+  let score = sessionScore[worktreeSessionAttention(w, now)]
   if (w.git.dirty) score += 50
   if (pr && (pr.state === 'open')) score += pr.review === 'changes_requested' ? 40 : 30
   if (w.detached) score -= 5
@@ -50,30 +51,34 @@ export function attentionScore(w: Worktree, pr?: Pr): number {
 }
 
 export interface SessionSummary {
-  waiting: number // finished their turn: your move
+  waiting: number // finished their turn (or asked something): your move
   working: number // thinking or running a tool
   failed: number
   approval: number // may be waiting for approval (a guess)
+  stale: number // waiting for hours: probably worth closing
 }
 
-/** How many worktrees have Claude waiting for you / working / failed, by their newest session. */
-export function summarizeSessions(repos: { worktrees: Worktree[] }[]): SessionSummary {
-  const sum: SessionSummary = { waiting: 0, working: 0, failed: 0, approval: 0 }
+/** How many worktrees have Claude waiting for you / working / failed, by the most urgent of their sessions. */
+export function summarizeSessions(repos: { worktrees: Worktree[] }[], now: Date = new Date()): SessionSummary {
+  const sum: SessionSummary = { waiting: 0, working: 0, failed: 0, approval: 0, stale: 0 }
   for (const repo of repos) {
     for (const w of repo.worktrees) {
-      switch (w.sessions[0]?.state) {
-        case 'waiting':
+      switch (worktreeSessionAttention(w, now)) {
+        case 'asks-you':
+        case 'review-output':
           sum.waiting++
           break
-        case 'thinking':
-        case 'running-tool':
+        case 'working':
           sum.working++
           break
         case 'failed':
           sum.failed++
           break
-        case 'needs-approval':
+        case 'approval':
           sum.approval++
+          break
+        case 'stale':
+          sum.stale++
           break
       }
     }

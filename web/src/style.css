@@ -330,3 +330,5 @@ button.danger:hover:not(:disabled) { background: var(--danger); border-color: va
 
 .wip { margin: 0; padding: 0.35rem 0.8rem; border-radius: 0.5rem; background: color-mix(in srgb, var(--unknown) 14%, transparent); color: var(--unknown); font-size: 0.93rem; }
 .lane-focus .lane-title { color: var(--unknown); }
+
+.attn-stale { opacity: 0.7; border-style: dashed; }

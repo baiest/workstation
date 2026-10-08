@@ -1,6 +1,7 @@
 // Which stage of the work a worktree is in, derived from data we already have
 // (Claude state, git, PR, dates). Nothing here is typed in by the user.
 import type { Pr, Worktree } from './types'
+import { needsYou, worktreeSessionAttention } from './attention'
 import { isLive, worktreeActivity } from './worktrees'
 
 export type Stage = 'needs-you' | 'in-progress' | 'review' | 'done' | 'dormant'
@@ -17,19 +18,16 @@ export const stageTitle: Record<Stage, string> = {
 
 export const DORMANT_DAYS = 14
 const DAY = 24 * 3600 * 1000
-const FAILURE_WINDOW = DAY // an old failure of a dead process must not stay red forever
 
-function needsYou(w: Worktree, pr: Pr | undefined, now: Date): boolean {
-  const s = w.sessions[0]
-  if (s?.state === 'waiting' || s?.state === 'needs-approval') return true
-  if (s?.state === 'failed' && now.getTime() - Date.parse(s.lastActivity) < FAILURE_WINDOW) return true
+function needsYouNow(w: Worktree, pr: Pr | undefined, now: Date): boolean {
+  if (needsYou(worktreeSessionAttention(w, now))) return true
   if (w.git.conflicts > 0) return true
   return pr?.state === 'open' && (pr.review === 'changes_requested' || pr.checks === 'failure')
 }
 
 /** First match wins: needs-you, done, review, dormant, else in-progress. */
 export function stageOf(w: Worktree, pr: Pr | undefined, now: Date = new Date(), dormantDays = DORMANT_DAYS): Stage {
-  if (needsYou(w, pr, now)) return 'needs-you'
+  if (needsYouNow(w, pr, now)) return 'needs-you'
   if (pr && (pr.state === 'merged' || pr.state === 'declined')) return 'done'
   if (pr?.state === 'open' && !pr.draft) return 'review'
   const idleDays = (now.getTime() - worktreeActivity(w)) / DAY

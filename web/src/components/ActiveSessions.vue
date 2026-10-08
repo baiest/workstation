@@ -1,6 +1,13 @@
 <script setup lang="ts">
 import { relativeTime, sessionHint, sessionLabel, sessionTitle, stateTone } from '../format'
 import type { ActiveRow } from '../active'
+import type { Attention } from '../attention'
+
+const attentionText: Partial<Record<Attention, [string, string]>> = {
+  'asks-you': ['asks you', 'Its last words end in a question mark (a guess)'],
+  'review-output': ['review', 'It finished its turn: there is something to look at'],
+  stale: ['stale', 'Waiting for hours: nobody is coming back. Finish what you need from it and close it (exit the claude process in its terminal)'],
+}
 
 withDefaults(defineProps<{ rows: ActiveRow[]; now?: Date }>(), { now: () => new Date() })
 const emit = defineEmits<{ resume: [sessionId: string]; plan: [sessionId: string, title: string] }>()
@@ -12,6 +19,7 @@ const emit = defineEmits<{ resume: [sessionId: string]; plan: [sessionId: string
     <ul>
       <li v-for="r in rows" :key="r.session.id" class="active-row" :class="`tone-${stateTone(r.session)}`" :data-active="r.session.id">
         <span class="s-state" :title="sessionHint(r.session)">{{ sessionLabel(r.session) }}</span>
+        <span v-if="attentionText[r.attention]" class="badge" :class="{ 'attn-stale': r.attention === 'stale' }" :title="attentionText[r.attention]![1]">{{ attentionText[r.attention]![0] }}</span>
         <span class="clip s-title" :title="sessionTitle(r.session)">{{ sessionTitle(r.session) }}</span>
         <span v-if="r.ticket" class="badge">{{ r.ticket }}</span>
         <span class="muted clip" :title="r.worktreePath ?? r.session.cwd">

@@ -28,12 +28,12 @@ describe('activeSessions', () => {
     expect(activeSessions(repos, [], now, 24).map((r) => r.session.id)).toEqual(['recent'])
   })
 
-  it('puts what needs you first: waiting, approval, failed, then working', () => {
-    const live = (id: string, state: Session['state'], status: Session['status'] = 'idle') => session({ id, state, status })
+  it('puts what needs you first: a question, approval, failed, then working', () => {
+    const live = (id: string, state: Session['state'], status: Session['status'] = 'idle') => session({ id, state, status, lastActivity: ago(0.5) })
     const repos = [repo('R', [
       wt('w1', [live('work', 'thinking', 'working')]),
       wt('w2', [live('fail', 'failed')]),
-      wt('w3', [live('wait', 'waiting')]),
+      wt('w3', [{ ...live('wait', 'waiting'), lastMessage: 'Which one?' }]),
       wt('w4', [live('appr', 'needs-approval')]),
     ])]
     expect(activeSessions(repos, [], now).map((r) => r.session.id)).toEqual(['wait', 'appr', 'fail', 'work'])
