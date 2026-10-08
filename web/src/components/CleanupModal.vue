@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { fetchCleanup, runCleanup } from '../api'
-import { relativeTime } from '../format'
+import { relativeTime, shellQuote } from '../format'
 import type { CleanupCandidate, CleanupKind, CleanupPreview, DeleteResult } from '../types'
 
 const props = defineProps<{ repo: string; repoName: string }>()
@@ -47,7 +47,7 @@ const canDelete = computed(() => !deleting.value && count.value > 0 && (!needsAc
 const deleteLabel = computed(() => `Delete ${count.value} local branch${count.value === 1 ? '' : 'es'}`)
 const deletedCount = computed(() => results.value?.filter((r) => r.deleted).length ?? 0)
 const restoreCommands = computed(() =>
-  (results.value ?? []).filter((r) => r.deleted).map((r) => `git branch ${r.branch} ${r.sha}`),
+  (results.value ?? []).filter((r) => r.deleted).map((r) => `git branch ${shellQuote(r.branch)} ${shellQuote(r.sha)}`),
 )
 const short = (sha: string) => sha.slice(0, 7)
 const commits = (n: number) => `${n} commit${n === 1 ? '' : 's'}`

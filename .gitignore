@@ -5,3 +5,8 @@ web/dist/*
 !web/dist/.gitkeep
 coverage/
 bin/
+
+# local state that must never be committed
+*-tickets.json
+*.exe~
+/(*

