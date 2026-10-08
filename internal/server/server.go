@@ -116,8 +116,6 @@ func New(build BuildFunc, launcher Launcher, web fs.FS, opts ...Option) http.Han
 	mux.HandleFunc("POST /api/worktree-cleanup", s.handleWorktreeCleanupRemove)
 	mux.HandleFunc("GET /api/cleanup", s.handleCleanupPreview)
 	mux.HandleFunc("POST /api/cleanup", s.handleCleanupDelete)
-	mux.HandleFunc("GET /api/notes", s.handleNotesGet)
-	mux.HandleFunc("POST /api/notes", s.handleNotesSet)
 	mux.HandleFunc("GET /api/tickets", s.handleTicketsGet)
 	mux.HandleFunc("POST /api/tickets", s.handleTicketsSet)
 	mux.HandleFunc("POST /api/tickets/discoveries", s.handleDiscoveryAdd)

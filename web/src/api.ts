@@ -1,4 +1,3 @@
-import type { Note } from './focus'
 import type { BranchesResponse, CleanupPreview, DeleteResult, PlanData, StoredTicket, TicketState, TicketsData, WorkspaceData, WtPreview, WtResult } from './types'
 
 export async function fetchWorkspace(): Promise<WorkspaceData> {
@@ -72,18 +71,6 @@ export async function runAction(action: Action, body: { path?: string; sessionId
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-  })
-  if (!res.ok) throw new Error((await res.text()).trim() || `${res.status}`)
-}
-
-/** Stars and "where I left off" notes, by worktree path. */
-export const fetchNotes = () => getJSON<Record<string, Note>>('/api/notes')
-
-export async function saveNote(path: string, note: Note): Promise<void> {
-  const res = await fetch('/api/notes', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path, starred: !!note.starred, text: note.text ?? '' }),
   })
   if (!res.ok) throw new Error((await res.text()).trim() || `${res.status}`)
 }

@@ -1,56 +1,13 @@
 package server
 
 import (
-	"encoding/json"
 	"net/http"
-	"path/filepath"
-	"strings"
 	"testing"
 	"testing/fstest"
 
 	"workstation/internal/notes"
 	"workstation/internal/workspace"
 )
-
-func notesServer(t *testing.T) (http.Handler, string, string) {
-	t.Helper()
-	ws, dir := fixtureWorkspace(t)
-	store := notes.New(filepath.Join(t.TempDir(), "notes.json"))
-	h := New(func() (workspace.Workspace, error) { return ws, nil }, &fakeLauncher{}, fstest.MapFS{}, WithNotes(store))
-	return h, dir, filepath.Join(t.TempDir(), "x")
-}
-
-func TestNotesRoundTrip(t *testing.T) {
-	h, dir, _ := notesServer(t)
-	body, _ := json.Marshal(map[string]any{"path": dir, "starred": true, "text": "next: tests"})
-	if rec := do(h, http.MethodPost, "/api/notes", string(body), nil); rec.Code != 204 {
-		t.Fatalf("set: %d %s", rec.Code, rec.Body)
-	}
-	rec := do(h, http.MethodGet, "/api/notes", "", nil)
-	var got map[string]notes.Note
-	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || !got[dir].Starred || got[dir].Text != "next: tests" {
-		t.Fatalf("got %v %v", got, err)
-	}
-}
-
-func TestNotesRejectUnknownWorktreeAndLongText(t *testing.T) {
-	h, dir, other := notesServer(t)
-	unknown, _ := json.Marshal(map[string]any{"path": other, "starred": true})
-	if rec := do(h, http.MethodPost, "/api/notes", string(unknown), nil); rec.Code != 400 {
-		t.Errorf("unknown worktree: %d", rec.Code)
-	}
-	long, _ := json.Marshal(map[string]any{"path": dir, "text": strings.Repeat("x", notes.MaxText+1)})
-	if rec := do(h, http.MethodPost, "/api/notes", string(long), nil); rec.Code != 400 {
-		t.Errorf("long text: %d", rec.Code)
-	}
-}
-
-func TestNotesDisabledWithoutStore(t *testing.T) {
-	h, _, _, _ := newTestServer(t)
-	if rec := do(h, http.MethodGet, "/api/notes", "", nil); rec.Code != 404 {
-		t.Fatalf("got %d", rec.Code)
-	}
-}
 
 func TestRemovingAWorktreeForgetsItsNote(t *testing.T) {
 	ws, _ := fixtureWorkspace(t)

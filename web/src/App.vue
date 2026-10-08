@@ -1,39 +1,40 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watchEffect } from 'vue'
-import { fetchBranches, fetchCleanup, fetchNotes, fetchWorkspace, runAction, saveNote, type Action } from './api'
+import {
+  addDiscovery, dismissSession, runAction, saveTicket, triageDiscovery,
+  type Action, type TriageAction,
+} from './api'
 import BranchGraph from './components/BranchGraph.vue'
 import CleanupModal from './components/CleanupModal.vue'
 import PlanModal from './components/PlanModal.vue'
 import SessionsModal from './components/SessionsModal.vue'
 import StageBoard from './components/StageBoard.vue'
 import TidyBar from './components/TidyBar.vue'
-import TicketList from './components/TicketList.vue'
+import TicketBoard from './components/TicketBoard.vue'
 import WorktreeCleanupModal from './components/WorktreeCleanupModal.vue'
 import ActiveSessions from './components/ActiveSessions.vue'
 import { activeSessions } from './active'
-import { loadBranchData, newBranchState, type BranchState } from './branchLoader'
 import { matchesFilter, relativeTime, statusLabel } from './format'
 import { resumeDecision, type ResumeWith } from './resume'
-import { buildTickets, matchTicket } from './tickets'
-import type { Note } from './focus'
-import { deliver, tabTitle } from './notifier'
-import { needsYouCount, transitions } from './notify'
-import { branchTidy, tidyCounts, type BranchTidy } from './tidy'
+import { buildTickets, matchTicket, type Ticket } from './tickets'
+import { tabTitle } from './notifier'
+import { needsYouCount } from './notify'
+import { tidyCounts } from './tidy'
 import { mergedHint, sortWorktrees, summarizeSessions } from './worktrees'
 import { browserStorage, loadHidden, saveHidden, toggleHidden } from './hidden'
-import type { Pr, Repo, WorkspaceData, Worktree } from './types'
+import type { Pr, Repo, TicketState, Worktree } from './types'
 import { FONT_DEFAULT, clampFontSize, nextFontSize } from './zoom'
 import { oneOf, pref, readPref, writePref } from './prefs'
+import { useWorkspace } from './useWorkspace'
 
-type Tab = 'worktrees' | 'branches' | 'tickets'
+type Tab = 'worktrees' | 'branches'
+type View = 'tickets' | 'repos'
 
 const TAB_KEY = 'workstation.tabs'
 const UNLINKED_LIMIT = 50
 
-const data = ref<WorkspaceData | null>(null)
-const error = ref('')
 const toast = ref('')
-const loading = ref(false)
+const notice = ref('')
 const query = ref('')
 const filterEl = ref<HTMLInputElement | null>(null)
 const planFor = ref<{ id: string; title: string } | null>(null)
@@ -41,17 +42,14 @@ const cleanupFor = ref<Repo | null>(null)
 const wtCleanupFor = ref<Repo | null>(null)
 const sessionsFor = ref<Worktree | null>(null) // the worktree whose full session list is open
 
-function openSessions(repo: Repo, path: string) {
-  sessionsFor.value = repo.worktrees.find((w) => w.path === path) ?? null
-}
-const tabs = reactive<Record<string, Tab>>(readPref(TAB_KEY, {}, (raw) => JSON.parse(raw)))
-const branchState = reactive<Record<string, BranchState>>({})
+// Which page is the main one: the tickets (default) or the repos with their worktrees and branches.
+const viewPref = pref<View>('workstation.view', 'tickets', oneOf<View>('tickets', 'repos'))
+const view = viewPref.value
 
-// "Resume Claude" in a terminal (CLI) or in the Claude Desktop app. Remembered per browser.
-const RESUME_KEY = 'workstation.resume-with'
-const resumeWithPref = pref<ResumeWith>(RESUME_KEY, 'cli', oneOf<ResumeWith>('cli', 'desktop'))
-const resumeWith = resumeWithPref.value
-const notice = ref('')
+// Projects the user hid, remembered per browser.
+const store = browserStorage()
+const hidden = ref<string[]>(loadHidden(store))
+const isHidden = (r: Repo) => hidden.value.includes(r.path)
 
 // Browser notifications when a session starts waiting for you. Off until asked; remembered per browser.
 const NOTIFY_KEY = 'workstation.notify'
@@ -72,6 +70,21 @@ async function toggleNotify() {
   notifyOn.value = !notifyOn.value
   writePref(NOTIFY_KEY, notifyOn.value ? '1' : '0')
 }
+
+const { data, store: ticketStore, error, loading, branchState, branchTidyOf, loadBranches, loadTickets, refresh } = useWorkspace({ isHidden, notifyOn })
+
+function openSessions(repo: Repo, path: string) {
+  sessionsFor.value = repo.worktrees.find((w) => w.path === path) ?? null
+}
+function openSessionsByPath(path: string) {
+  sessionsFor.value = (data.value?.repos ?? []).flatMap((r) => r.worktrees).find((w) => w.path === path) ?? null
+}
+const tabs = reactive<Record<string, Tab>>(readPref(TAB_KEY, {}, (raw) => JSON.parse(raw)))
+
+// "Resume Claude" in a terminal (CLI) or in the Claude Desktop app. Remembered per browser.
+const RESUME_KEY = 'workstation.resume-with'
+const resumeWithPref = pref<ResumeWith>(RESUME_KEY, 'cli', oneOf<ResumeWith>('cli', 'desktop'))
+const resumeWith = resumeWithPref.value
 
 function toggleResumeWith() {
   resumeWithPref.set(resumeWith.value === 'cli' ? 'desktop' : 'cli')
@@ -104,10 +117,6 @@ function toggleSort() {
   sortPref.set(sortMode.value === 'activity' ? 'name' : 'activity')
 }
 
-// Projects the user hid, remembered per browser.
-const store = browserStorage()
-const hidden = ref<string[]>(loadHidden(store))
-const isHidden = (r: Repo) => hidden.value.includes(r.path)
 const hiddenRepos = computed(() => (data.value?.repos ?? []).filter(isHidden))
 // "Who needs me": Claude sessions waiting for you / working / failed, across the visible projects
 const sessionSummary = computed(() => summarizeSessions((data.value?.repos ?? []).filter((r) => !isHidden(r))))
@@ -138,97 +147,13 @@ function setTab(repo: Repo, tab: Tab) {
   writePref(TAB_KEY, JSON.stringify(tabs))
 }
 
-const tabOf = (repo: Repo): Tab => tabs[repo.path] ?? 'worktrees'
-
-// The graph from git appears first; pull requests fill in when they arrive.
-function loadBranches(repo: Repo, refresh = false) {
-  if (!branchState[repo.path]) branchState[repo.path] = newBranchState()
-  // go through the reactive proxy: the object returned by an assignment is the raw one, and mutating it would not update the page
-  return loadBranchData(branchState[repo.path], repo.path, refresh, fetchBranches)
-}
+const tabOf = (repo: Repo): Tab => (tabs[repo.path] === 'branches' ? 'branches' : 'worktrees')
 
 function toggleMerged(repo: Repo) {
   const st = branchState[repo.path]
   if (!st) return
   st.merged = !st.merged
   loadBranches(repo)
-}
-
-function announce(prev: WorkspaceData | null, next: WorkspaceData) {
-  const events = transitions(prev?.repos, next.repos, next.unlinked, prev?.unlinked)
-  deliver(events, {
-    enabled: notifyOn.value,
-    permission: typeof Notification === 'undefined' ? 'denied' : Notification.permission,
-    hidden: document.hidden,
-    make: (title, options) => {
-      const n = new Notification(title, options)
-      n.onclick = () => {
-        window.focus()
-        n.close()
-      }
-    },
-  })
-}
-
-let busy = false
-async function refresh(quiet = false) {
-  if (busy) return
-  busy = true
-  loading.value = !quiet // the timer refreshes without flickering the button
-  try {
-    const prev = data.value
-    const next = await fetchWorkspace()
-    data.value = next
-    announce(prev, next)
-    loadNotes()
-    error.value = ''
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
-  } finally {
-    loading.value = false
-    busy = false
-  }
-  // PRs load in the background; the worktree view never waits for them. This does NOT force a
-  // lookup: the server serves its cache (5 min, kept on disk) and refreshes old data by itself, so
-  // pressing Refresh costs git, not API calls. "Refresh PRs" in the Branches tab forces one.
-  // Hidden projects are skipped: no point spending API calls on what is not shown.
-  if (quiet) return // the timer only watches Claude: branches and PRs are not worth a git call every 30 s
-  for (const repo of data.value?.repos ?? []) {
-    if (!isHidden(repo)) loadBranches(repo, false)?.then(() => loadTidy(repo))
-  }
-}
-
-// How many branches could go, from the cleanup preview (read-only, served from the PR cache).
-const branchTidyOf = reactive<Record<string, BranchTidy>>({})
-async function loadTidy(repo: Repo) {
-  const st = branchState[repo.path]
-  if (!st?.data || st.data.prsPending) return // without PR data the count would be misleading
-  try {
-    branchTidyOf[repo.path] = branchTidy((await fetchCleanup(repo.path, 30)).candidates)
-  } catch {
-    delete branchTidyOf[repo.path] // the bar just shows less
-  }
-}
-
-// Stars and notes live on the server; a change shows at once and is undone if saving fails.
-const notes = ref<Record<string, Note>>({})
-async function loadNotes() {
-  try {
-    notes.value = await fetchNotes()
-  } catch {
-    // notes are optional: the board works without them
-  }
-}
-async function changeNote(path: string, patch: Note) {
-  const before = notes.value[path]
-  notes.value = { ...notes.value, [path]: { ...before, ...patch } }
-  try {
-    await saveNote(path, notes.value[path])
-    toast.value = ''
-  } catch (e) {
-    notes.value = { ...notes.value, [path]: before }
-    toast.value = `could not save: ${e instanceof Error ? e.message : e}`
-  }
 }
 
 async function act(action: Action, body: { path?: string; sessionId?: string; mode?: ResumeWith }) {
@@ -240,13 +165,38 @@ async function act(action: Action, body: { path?: string; sessionId?: string; mo
   }
 }
 
-// Everything of a repo grouped by ticket. PRs come from the branch graph, so the
-// groups gain their PR info as soon as the second loading step arrives.
-function ticketsOf(repo: Repo) {
-  const graph = branchState[repo.path]?.data?.graph
-  const fallbackDefault = repo.worktrees.some((w) => w.branch === 'master') ? 'master' : 'main'
-  return buildTickets(repo.worktrees, graph?.nodes ?? [], graph?.default ?? fallbackDefault).filter((t) => matchTicket(t, query.value))
+// The ticket store lives on the server; every change is saved there and the board re-reads it.
+async function saved(what: string, fn: () => Promise<unknown>) {
+  try {
+    await fn()
+    toast.value = ''
+  } catch (e) {
+    toast.value = `${what}: ${e instanceof Error ? e.message : e}`
+  }
+  await loadTickets()
 }
+const target = (t: Ticket) => ({ repo: t.repo, ref: t.ref })
+const setState = (t: Ticket, state: TicketState, blockedReason?: string) =>
+  saved('could not save', () => saveTicket(target(t), { state, ...(blockedReason !== undefined ? { blockedReason } : {}) }))
+const setNextStep = (t: Ticket, text: string) => saved('could not save', () => saveTicket(target(t), { nextStep: text }))
+const noteDiscovery = (t: Ticket, text: string) => saved('could not save', () => addDiscovery(target(t), text))
+const triage = (t: Ticket, discoveryId: string, action: TriageAction) => saved('could not save', () => triageDiscovery(t.id, discoveryId, action))
+const dismiss = (sessionId: string) => saved('could not dismiss', () => dismissSession(sessionId, true))
+
+const visibleRepos = computed(() => (data.value?.repos ?? []).filter((r) => !isHidden(r)))
+const repoNames = computed(() => Object.fromEntries(visibleRepos.value.map((r) => [r.path, r.name])))
+
+// Everything grouped by ticket, across projects. The graph brings the PRs and the branches
+// without a worktree; until it has loaded, the PRs the server attached to each worktree are used.
+const allTickets = computed(() =>
+  visibleRepos.value
+    .flatMap((repo) => {
+      const graph = branchState[repo.path]?.data?.graph
+      const fallbackDefault = repo.worktrees.some((w) => w.branch === 'master') ? 'master' : 'main'
+      return buildTickets(repo.worktrees, graph?.nodes ?? [], graph?.default ?? fallbackDefault, { repo: repo.path, stored: ticketStore.value?.tickets })
+    })
+    .filter((t) => matchTicket(t, query.value)),
+)
 
 /** How many worktrees of the repo look removable (merged PR, nothing pending): a hint for the button. */
 const removableCount = (repo: Repo) => repo.worktrees.filter((w) => mergedHint(w, prFor(repo, w.branch))).length
@@ -259,8 +209,7 @@ const prFor = (repo: Repo, branch?: string): Pr | undefined =>
     : undefined
 
 const repos = computed(() =>
-  (data.value?.repos ?? [])
-    .filter((r) => !isHidden(r))
+  visibleRepos.value
     .map((r) => ({
       ...r,
       all: r.worktrees,
@@ -275,14 +224,15 @@ const repos = computed(() =>
 
 function onKey(e: KeyboardEvent) {
   if (e.metaKey || e.ctrlKey || e.altKey) return
-  const typing = document.activeElement instanceof HTMLInputElement
+  const typing = document.activeElement instanceof HTMLInputElement || document.activeElement instanceof HTMLTextAreaElement
+  const modal = planFor.value || cleanupFor.value || wtCleanupFor.value
   if (e.key === '/' && !typing) {
     e.preventDefault()
     filterEl.value?.focus()
-  } else if (e.key === 'Escape' && !planFor.value && !cleanupFor.value && !wtCleanupFor.value) {
+  } else if (e.key === 'Escape' && !modal && document.activeElement === filterEl.value) {
     query.value = ''
     filterEl.value?.blur()
-  } else if (e.key === 'r' && !typing && !planFor.value && !cleanupFor.value && !wtCleanupFor.value) {
+  } else if (e.key === 'r' && !typing && !modal) {
     refresh()
   }
 }
@@ -308,7 +258,11 @@ onBeforeUnmount(() => {
 <template>
   <header class="bar">
     <h1>workstation</h1>
-    <input ref="filterEl" v-model="query" class="filter" placeholder="Filter worktrees   ( / )" spellcheck="false" />
+    <span class="views" role="group" aria-label="View">
+      <button data-view="tickets" :class="{ active: view === 'tickets' }" @click="viewPref.set('tickets')">Tickets</button>
+      <button data-view="repos" :class="{ active: view === 'repos' }" @click="viewPref.set('repos')">Repos</button>
+    </span>
+    <input ref="filterEl" v-model="query" class="filter" :placeholder="view === 'tickets' ? 'Filter tickets   ( / )' : 'Filter worktrees   ( / )'" spellcheck="false" />
     <span v-if="data" class="session-summary" aria-label="Claude sessions">
       <span v-if="sessionSummary.waiting" class="chip attention" title="Claude finished its turn: it is waiting for your next message">
         {{ sessionSummary.waiting }} waiting for you
@@ -353,17 +307,36 @@ onBeforeUnmount(() => {
     <p v-if="notice" class="banner info" @click="notice = ''">{{ notice }}</p>
     <p v-if="!data && !error" class="muted">Loading…</p>
 
-    <ActiveSessions :rows="activeRows" @resume="(id) => resumeSession(id)" @plan="(id, title) => (planFor = { id, title })" />
+    <ActiveSessions
+      :rows="activeRows"
+      @resume="(id) => resumeSession(id)"
+      @plan="(id, title) => (planFor = { id, title })"
+      @dismiss="(id) => dismiss(id)"
+    />
 
-    <section v-for="repo in repos" :key="repo.path">
+    <TicketBoard
+      v-if="view === 'tickets' && data"
+      :tickets="allTickets"
+      :editor="data?.capabilities.editor ?? ''"
+      :wip-limit="ticketStore?.config.wipLimit ?? 3"
+      :repo-names="repoNames"
+      @state="(t, s, reason) => setState(t, s, reason)"
+      @next="(t, text) => setNextStep(t, text)"
+      @discover="(t, text) => noteDiscovery(t, text)"
+      @triage="(t, id, action) => triage(t, id, action)"
+      @terminal="(p) => act('terminal', { path: p })"
+      @editor="(p) => act('editor', { path: p })"
+      @resume="(id) => resumeSession(id)"
+      @plan="(id, title) => (planFor = { id, title })"
+      @sessions="(p) => openSessionsByPath(p)"
+    />
+
+    <section v-for="repo in view === 'repos' ? repos : []" :key="repo.path">
       <h2>
         {{ repo.name }}
         <span class="muted mono path"><bdi>{{ repo.path }}</bdi></span>
         <span class="tabs">
           <button :class="{ active: tabOf(repo) === 'worktrees' }" @click="setTab(repo, 'worktrees')">Worktrees</button>
-          <button :class="{ active: tabOf(repo) === 'tickets' }" data-tab="tickets" @click="setTab(repo, 'tickets'); loadBranches(repo)">
-            Tickets
-          </button>
           <button :class="{ active: tabOf(repo) === 'branches' }" @click="setTab(repo, 'branches'); loadBranches(repo)">
             Branches
             <span v-if="branchState[repo.path]?.data" class="count">{{ branchState[repo.path].data!.graph.nodes.length }}</span>
@@ -394,29 +367,12 @@ onBeforeUnmount(() => {
         :worktrees="repo.worktrees"
         :editor="data!.capabilities.editor"
         :pr-for="(branch) => prFor(repo, branch)"
-        :notes="notes"
         @terminal="(p) => act('terminal', { path: p })"
         @editor="(p) => act('editor', { path: p })"
         @resume="(id) => resumeSession(id)"
         @plan="(id, title) => (planFor = { id, title })"
         @sessions="(p) => openSessions(repo, p)"
-        @star="(p, on) => changeNote(p, { starred: on })"
-        @note="(p, text) => changeNote(p, { text })"
       />
-
-      <div v-else-if="tabOf(repo) === 'tickets'" class="tickets-tab">
-        <p v-if="branchState[repo.path]?.prsLoading" class="muted loading-line"><i class="spinner" /> Loading pull requests…</p>
-        <p v-if="branchState[repo.path]?.prsError" class="banner warn">Could not load pull requests: {{ branchState[repo.path].prsError }}</p>
-        <TicketList
-          :tickets="ticketsOf(repo)"
-          :editor="data!.capabilities.editor"
-          @terminal="(p) => act('terminal', { path: p })"
-          @editor="(p) => act('editor', { path: p })"
-          @resume="(id) => resumeSession(id)"
-          @plan="(id) => (planFor = { id, title: repo.name })"
-          @sessions="(p) => openSessions(repo, p)"
-        />
-      </div>
 
       <div v-else class="branches">
         <p v-for="w in branchState[repo.path]?.data?.warnings ?? []" :key="w" class="banner warn">{{ w }}</p>
@@ -471,7 +427,7 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
-    <p v-if="data && !repos.length" class="muted">
+    <p v-if="data && view === 'repos' && !repos.length" class="muted">
       {{
         query
           ? 'No worktrees match the filter.'
@@ -492,7 +448,7 @@ onBeforeUnmount(() => {
       </ul>
     </details>
 
-    <details v-if="data?.unlinked.length" class="unlinked">
+    <details v-if="view === 'repos' && data?.unlinked.length" class="unlinked">
       <summary>Unlinked sessions ({{ data.unlinked.length }})</summary>
       <p class="muted">Claude sessions that could not be matched to a Git worktree.</p>
       <ul>

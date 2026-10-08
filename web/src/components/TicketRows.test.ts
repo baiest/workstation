@@ -1,6 +1,6 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
-import TicketList from './TicketList.vue'
+import TicketRows from './TicketRows.vue'
 import { buildTickets } from '../tickets'
 import type { BranchNode, Pr, Session, Worktree } from '../types'
 
@@ -36,19 +36,11 @@ const tickets = () =>
     'main',
   )
 
-const render = (t = tickets(), editor = 'cursor') => mount(TicketList, { props: { tickets: t, editor, now } })
+const render = (t = tickets(), editor = 'cursor') => mount(TicketRows, { props: { items: t.flatMap((x) => x.items), editor, now } })
 
-describe('TicketList', () => {
-  it('shows one section per ticket with its key and title', () => {
-    const w = render()
-    const first = w.get('[data-ticket="REG-5393"]')
-    expect(first.get('.ticket-key').text()).toBe('REG-5393')
-    expect(first.get('h3').text()).toBe('Update: use the ACE field')
-    expect(w.get('[data-ticket="branch:fix/typo"] h3').text()).toBe('fix/typo')
-  })
-
+describe('TicketRows', () => {
   it('answers "which worktree is for which branch and PR" in one row', () => {
-    const row = render().get('[data-ticket="REG-5393"] [data-branch="REG-5393-ace-sync-customer-rules"]')
+    const row = render().get('[data-branch="REG-5393-ace-sync-customer-rules"]')
     expect(row.text()).toContain('REG-5393-ace-sync-customer-rules')
     expect(row.get('.cell.folder').text()).toBe('REG-5393-ace-sync-worker')
     expect(row.get('.cell.pr').text()).toContain('#48080 Open · 1 approval')
@@ -66,17 +58,6 @@ describe('TicketList', () => {
   it('marks recent branches', () => {
     const w = render()
     expect(w.find('[data-branch="REG-5393-ace-sync-infra"] .new-badge').exists()).toBe(true) // 4 h ago
-  })
-
-  it('summarises each ticket', () => {
-    expect(render().get('[data-ticket="REG-5393"] .summary').text()).toBe('1 worktree · 2 branches')
-  })
-
-  it('flags a ticket whose PRs are all merged', () => {
-    const t = buildTickets([], [node('REG-1-a', { pr: pr('REG-1-a', { state: 'merged' }) })], 'main')
-    const w = render(t)
-    expect(w.get('section').classes()).toContain('done')
-    expect(w.get('.merged-hint').text()).toContain('merged')
   })
 
   it('emits the worktree actions with the right payloads', async () => {
@@ -108,13 +89,10 @@ describe('TicketList', () => {
   it('hides the editor button when none is installed and resume/plan without a session', () => {
     const w = render(tickets(), '')
     expect(w.find('[data-action=editor]').exists()).toBe(false)
-    const quiet = w.get('[data-ticket="branch:fix/typo"] [data-branch="fix/typo"]')
+    const quiet = w.get('[data-branch="fix/typo"]')
     expect(quiet.find('[data-action=resume]').exists()).toBe(false)
     expect(quiet.find('[data-action=plan]').exists()).toBe(false)
     expect(quiet.find('[data-action=terminal]').exists()).toBe(true)
   })
 
-  it('has an empty state', () => {
-    expect(render([]).text()).toContain('No tickets')
-  })
 })

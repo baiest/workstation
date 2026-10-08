@@ -10,7 +10,7 @@ const attentionText: Partial<Record<Attention, [string, string]>> = {
 }
 
 withDefaults(defineProps<{ rows: ActiveRow[]; now?: Date }>(), { now: () => new Date() })
-const emit = defineEmits<{ resume: [sessionId: string]; plan: [sessionId: string, title: string] }>()
+const emit = defineEmits<{ resume: [sessionId: string]; plan: [sessionId: string, title: string]; dismiss: [sessionId: string] }>()
 </script>
 
 <template>
@@ -29,6 +29,14 @@ const emit = defineEmits<{ resume: [sessionId: string]; plan: [sessionId: string
         <span class="muted s-ago">{{ relativeTime(r.session.lastActivity, now) }}</span>
         <button v-if="r.session.hasPlan" class="link" @click="emit('plan', r.session.id, sessionTitle(r.session))">Plan</button>
         <button v-if="r.session.resumable" class="link" @click="emit('resume', r.session.id)">Resume</button>
+        <button
+          class="link"
+          data-dismiss
+          title="This session no longer matters: stop showing it and stop counting it (the chat itself is untouched)"
+          @click="emit('dismiss', r.session.id)"
+        >
+          Dismiss
+        </button>
       </li>
     </ul>
   </section>

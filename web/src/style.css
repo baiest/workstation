@@ -329,6 +329,38 @@ button.danger:hover:not(:disabled) { background: var(--danger); border-color: va
 .card .note-input { width: 100%; box-sizing: border-box; }
 
 .wip { margin: 0; padding: 0.35rem 0.8rem; border-radius: 0.5rem; background: color-mix(in srgb, var(--unknown) 14%, transparent); color: var(--unknown); font-size: 0.93rem; }
-.lane-focus .lane-title { color: var(--unknown); }
 
 .attn-stale { opacity: 0.7; border-style: dashed; }
+
+/* ticket board */
+.views { display: inline-flex; gap: 0; }
+.views button { border-radius: 0; }
+.views button:first-child { border-radius: 0.4rem 0 0 0.4rem; }
+.views button:last-child { border-radius: 0 0.4rem 0.4rem 0; border-left: 0; }
+.views button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.ticket-board { display: flex; flex-direction: column; gap: 1.1rem; }
+.ticket-board .tickets { gap: 0.7rem; }
+.ticket.state-active { border-left: 0.2rem solid var(--working); }
+.ticket.state-blocked { border-left: 0.2rem solid var(--danger); }
+.ticket.state-parked, .ticket.state-backlog { opacity: 0.9; }
+.ticket.state-ignored { opacity: 0.6; }
+.lane-needs-you .ticket { border-left: 0.2rem solid var(--unknown); }
+.badge.repo-badge { flex: none; }
+.badge.signal { flex: none; color: var(--unknown); border-color: var(--unknown); font-weight: 600; }
+.badge.signal-failed { color: var(--danger); border-color: var(--danger); }
+.badge.signal-working { color: var(--working); border-color: var(--working); font-weight: 400; }
+.badge.signal-stale { color: var(--muted); border-color: var(--muted); border-style: dashed; font-weight: 400; }
+.next-line { margin: 0.1rem 0 0.4rem; }
+.next-line .next { display: block; max-width: 100%; text-align: left; white-space: pre-wrap; color: var(--text); padding: 0; }
+.next-input { width: 100%; box-sizing: border-box; font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--accent); border-radius: 0.4rem; padding: 0.4rem 0.6rem; resize: vertical; }
+.blocked-line { margin: 0 0 0.4rem; color: var(--danger); font-size: 0.92rem; }
+.blocked-edit { display: flex; gap: 0.5rem; margin-bottom: 0.4rem; }
+.blocked-edit input, .discover-input { flex: 1; min-width: 0; font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--accent); border-radius: 0.4rem; padding: 0.25rem 0.6rem; }
+.discoveries { list-style: none; margin: 0 0 0.5rem; padding: 0.3rem 0.6rem; border: 1px dashed var(--border); border-radius: 0.45rem; }
+.discovery { display: flex; align-items: center; gap: 0.5rem; padding: 0.15rem 0; font-size: 0.92rem; }
+.discovery .d-text { flex: 1; min-width: 0; }
+.discovery .d-meta { flex: none; font-size: 0.8rem; }
+.ticket-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.4rem; }
+.ticket-actions button:not(.link) { font-size: 0.82rem; padding: 0.15rem 0.7rem; }
+.ticket-actions .spacer { flex: 1; }
+.ticket-actions .discover-input { flex: 0 1 22rem; }
