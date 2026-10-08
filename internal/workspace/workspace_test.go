@@ -241,3 +241,24 @@ func TestBuildMarksPullRequestsPendingUntilKnown(t *testing.T) {
 		t.Fatalf("unknown PRs must be flagged, not guessed: %+v", ws.Repos[0])
 	}
 }
+
+func TestBuildNamesTheTicketOfEachWorktree(t *testing.T) {
+	f := newFixture(t) // main on "main", linked worktree on "feat" in a folder called wt-feat
+	ws, err := Builder{Provider: fakeProvider{}, ExtraRepos: []string{f.repo}}.Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	main, feat := ws.Repos[0].Worktrees[0], ws.Repos[0].Worktrees[1]
+	if main.Ticket != "branch:main" || feat.Ticket != "branch:feat" {
+		t.Fatalf("tickets = %q, %q", main.Ticket, feat.Ticket)
+	}
+
+	mustGit(t, f.wt, "branch", "-m", "feature/REG-42-thing")
+	ws, err = Builder{Provider: fakeProvider{}, ExtraRepos: []string{f.repo}}.Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := ws.Repos[0].Worktrees[1].Ticket; got != "REG-42" {
+		t.Fatalf("a tracker key in the branch names the ticket: %q", got)
+	}
+}

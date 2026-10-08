@@ -28,7 +28,7 @@ function summary(t: Ticket): string {
   <div class="tickets">
     <p v-if="!tickets.length" class="muted">No tickets: no branch or worktree matches.</p>
 
-    <section v-for="t in tickets" :key="t.key || 'none'" class="ticket" :class="{ done: t.done }" :data-ticket="t.key || 'none'">
+    <section v-for="t in tickets" :key="t.id" class="ticket" :class="{ done: t.done }" :data-ticket="t.ref">
       <header>
         <span class="badge ticket-key">{{ t.key || '—' }}</span>
         <h3 class="clip" :title="t.title">{{ t.title }}</h3>

@@ -56,7 +56,7 @@ func fixtureWorkspace(t *testing.T) (workspace.Workspace, string) {
 	dir := t.TempDir()
 	return workspace.Workspace{
 		Repos: []workspace.Repo{{Name: "r", Path: "/r", Worktrees: []workspace.Worktree{{
-			Name: "wt", Path: dir, Branch: "feat",
+			Name: "wt", Path: dir, Branch: "feat", Ticket: "branch:feat",
 			Sessions: []claude.Session{
 				{ID: "sess-1", Cwd: dir, Resumable: true, Slug: "plan-one", HasPlan: true},
 				{ID: "local_x", Cwd: dir, Resumable: false},

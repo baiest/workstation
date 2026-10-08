@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildTickets, matchTicket } from './tickets'
-import type { BranchNode, Pr, Session, Worktree } from './types'
+import type { BranchNode, Pr, Session, StoredTicket, Worktree } from './types'
 
 const session = (over: Partial<Session> = {}): Session => ({
   id: 's', source: 'cli', cwd: '/w', status: 'stopped', lastActivity: '2026-09-01T00:00:00Z', resumable: true, hasPlan: false, ...over,
@@ -65,20 +65,29 @@ describe('buildTickets', () => {
     expect(tickets[0].items[0].worktree?.isMain).toBe(true)
   })
 
-  it('files branches without a ticket key under one "no ticket" group, last', () => {
+  it('makes a ticket of each branch that has no tracker key, named after the branch', () => {
     const tickets = buildTickets(
       [wt('fix-typo', 'fix/typo'), wt('legacy', 'cleanup'), wt('REG-9-z', 'REG-9-z')],
       [],
       'main',
     )
-    expect(tickets.map((t) => t.key)).toEqual(['REG-9', ''])
-    expect(tickets[1].items.map((i) => i.branch).sort()).toEqual(['cleanup', 'fix/typo'])
-    expect(tickets[1].title).toBe('No ticket')
+    expect(tickets.map((t) => t.ref).sort()).toEqual(['REG-9', 'branch:cleanup', 'branch:fix/typo'])
+    const typo = tickets.find((t) => t.ref === 'branch:fix/typo')!
+    expect(typo).toMatchObject({ key: '', title: 'fix/typo', id: '|branch:fix/typo' })
+    expect(typo.items.map((i) => i.branch)).toEqual(['fix/typo'])
+  })
+
+  it('trusts the ref the server computed over its own guess', () => {
+    const [t] = buildTickets([wt('wt', 'anything', { ticket: 'REG-100' })], [], 'main')
+    expect(t.ref).toBe('REG-100')
+    const [n] = buildTickets([], [node('whatever', { ticket: 'LOY-5' })], 'main')
+    expect(n.ref).toBe('LOY-5')
   })
 
   it('falls back to the folder name for a detached worktree', () => {
     const tickets = buildTickets([wt('REG-7-baseline', undefined)], [], 'main')
     expect(tickets).toHaveLength(1)
+    expect(tickets[0].id).toBe('|REG-7')
     expect(tickets[0].key).toBe('REG-7')
     expect(tickets[0].items[0].branch).toBe('detached @ abc1234')
   })
@@ -120,6 +129,63 @@ describe('buildTickets', () => {
 
   it('returns nothing for nothing', () => {
     expect(buildTickets([], [], 'main')).toEqual([])
+  })
+})
+
+const stored = (over: Partial<StoredTicket> = {}): StoredTicket => ({
+  id: '/r|REG-1', repo: '/r', ref: 'REG-1', created: '2026-10-01T00:00:00Z', updated: '2026-10-02T00:00:00Z', ...over,
+})
+
+describe('buildTickets with what the human stored', () => {
+  const build = (st: StoredTicket[], worktrees: Worktree[] = [wt('REG-1-a', 'REG-1-a')], nodes: BranchNode[] = []) =>
+    buildTickets(worktrees, nodes, 'main', { repo: '/r', stored: Object.fromEntries(st.map((s) => [s.id, s])), now: new Date('2026-10-02T12:00:00Z') })
+
+  it('is in the inbox until a human decides', () => {
+    expect(build([])[0]).toMatchObject({ id: '/r|REG-1', state: 'inbox', nextStep: '', openDiscoveries: [] })
+  })
+
+  it('carries state, next step, blocked reason and only the open discoveries', () => {
+    const d = (id: string, status: 'open' | 'dropped') => ({ id, text: id, source: 'cli' as const, status, at: '2026-10-02T00:00:00Z' })
+    const [t] = build([stored({ state: 'blocked', nextStep: 'run the tests', blockedReason: 'waits for Ana', discoveries: [d('a', 'open'), d('b', 'dropped')] })])
+    expect(t).toMatchObject({ state: 'blocked', nextStep: 'run the tests', blockedReason: 'waits for Ana' })
+    expect(t.openDiscoveries.map((x) => x.id)).toEqual(['a'])
+  })
+
+  it('a stored title wins over the PR title', () => {
+    expect(build([stored({ title: 'My name for it' })])[0].title).toBe('My name for it')
+  })
+
+  it('lists a stored ticket that has no branch or worktree (a promoted discovery, a backlog idea)', () => {
+    const tickets = build([stored({ id: '/r|note:ab12', ref: 'note:ab12', state: 'parked', title: 'refresh tokens' })], [])
+    expect(tickets).toHaveLength(1)
+    expect(tickets[0]).toMatchObject({ ref: 'note:ab12', state: 'parked', title: 'refresh tokens', items: [], done: false, key: '' })
+  })
+
+  it('ignores the tickets of other repos', () => {
+    const other = stored({ id: '/other|REG-1', repo: '/other' })
+    expect(build([other])[0].state).toBe('inbox')
+    expect(build([other], [])).toEqual([])
+  })
+
+  it('files a branch under the ticket that owns it', () => {
+    const t = stored({ id: '/r|note:ab12', ref: 'note:ab12', branch: 'fix/typo', state: 'active', title: 'typo' })
+    const tickets = build([t], [wt('fix-typo', 'fix/typo')])
+    expect(tickets).toHaveLength(1)
+    expect(tickets[0]).toMatchObject({ ref: 'note:ab12', state: 'active', title: 'typo' })
+    expect(tickets[0].items[0].worktree?.name).toBe('fix-typo')
+  })
+
+  it('uses the PR the server attached to the worktree until the graph brings its own', () => {
+    const [a] = build([], [wt('REG-1-a', 'REG-1-a', { pr: pr('REG-1-a', { state: 'merged' }) })])
+    expect(a.done).toBe(true)
+    const [b] = build([], [wt('REG-1-a', 'REG-1-a', { pr: pr('REG-1-a', { state: 'merged' }) })], [node('REG-1-a', { pr: pr('REG-1-a') })])
+    expect(b.done).toBe(false)
+  })
+
+  it('knows when something calls for you', () => {
+    const asking = wt('REG-1-a', 'REG-1-a', { sessions: [session({ status: 'idle', state: 'waiting', lastActivity: '2026-10-02T11:50:00Z' })] })
+    expect(build([], [asking])[0]).toMatchObject({ needsYou: true, signal: 'review-output' })
+    expect(build([])[0]).toMatchObject({ needsYou: false, signal: 'none' })
   })
 })
 

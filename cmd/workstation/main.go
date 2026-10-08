@@ -15,6 +15,7 @@ import (
 	"workstation/internal/forge"
 	"workstation/internal/notes"
 	"workstation/internal/server"
+	"workstation/internal/tickets"
 	"workstation/internal/workspace"
 	"workstation/internal/wtclean"
 	"workstation/web"
@@ -28,14 +29,15 @@ func main() {
 	addr := flag.String("addr", "127.0.0.1:7420", "listen address; must be a loopback address (the server has no authentication)")
 	cfgPath := flag.String("config", config.DefaultPath(), "optional config file")
 	cacheDir := flag.String("cache-dir", defaultCacheDir(), "where pull request data is kept between runs (private to you); empty disables")
-	statePath := flag.String("notes-file", defaultNotesFile(), "where stars and notes are kept (private to you); empty keeps them in memory only")
+	statePath := flag.String("notes-file", defaultNotesFile(), "where the old stars and notes are read from (private to you); empty keeps them in memory only")
+	ticketsPath := flag.String("tickets-file", defaultTicketsFile(), "where tickets (state, next step, discoveries) are kept (private to you); empty keeps them in memory only")
 	flag.Parse()
 
 	if *showVersion {
 		fmt.Println("workstation", version)
 		return
 	}
-	if err := run(*addr, *cfgPath, *cacheDir, *statePath); err != nil {
+	if err := run(*addr, *cfgPath, *cacheDir, *statePath, *ticketsPath); err != nil {
 		fmt.Fprintln(os.Stderr, "workstation:", err)
 		os.Exit(1)
 	}
@@ -59,7 +61,16 @@ func defaultNotesFile() string {
 	return filepath.Join(dir, "workstation", "notes.json")
 }
 
-func run(addr, cfgPath, cacheDir, notesFile string) error {
+// defaultTicketsFile is <user config dir>/workstation/tickets.json, or "" if the OS has none.
+func defaultTicketsFile() string {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(dir, "workstation", "tickets.json")
+}
+
+func run(addr, cfgPath, cacheDir, notesFile, ticketsFile string) error {
 	if err := server.RequireLoopback(addr); err != nil {
 		return err
 	}
@@ -70,6 +81,8 @@ func run(addr, cfgPath, cacheDir, notesFile string) error {
 
 	cli := claude.NewCLI(claude.DefaultCLIRoot(), claude.PidAlive)
 	provider := claude.Combined{CLI: cli, Desktop: claude.NewDesktop(claude.DesktopRoots())}
+	keyer := tickets.Keyer{}
+
 	branchSvc := branches.NewService(forge.DefaultDeps(cfg.Forges))
 	if cacheDir != "" {
 		branchSvc.Store = branches.NewDiskStore(cacheDir)
@@ -77,6 +90,7 @@ func run(addr, cfgPath, cacheDir, notesFile string) error {
 	builder := workspace.Builder{
 		Provider:   provider,
 		ExtraRepos: cfg.Repos,
+		Keyer:      keyer,
 		PRs: func(repo string) (map[string]*forge.PR, bool) {
 			prs, known := branchSvc.CachedPullRequests(repo)
 			return branches.BestPRs(prs), known
@@ -87,6 +101,7 @@ func run(addr, cfgPath, cacheDir, notesFile string) error {
 		server.WithBranches(branchSvc),
 		server.WithCleanup(branchSvc),
 		server.WithNotes(notes.New(notesFile)),
+		server.WithTickets(tickets.New(ticketsFile), keyer),
 		server.WithWorktreeCleanup(&wtclean.Service{PRs: branchSvc.PullRequests}),
 	)
 	log.Printf("workstation listening on http://%s", addr)

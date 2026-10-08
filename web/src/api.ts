@@ -1,5 +1,5 @@
 import type { Note } from './focus'
-import type { BranchesResponse, CleanupPreview, DeleteResult, PlanData, WorkspaceData, WtPreview, WtResult } from './types'
+import type { BranchesResponse, CleanupPreview, DeleteResult, PlanData, StoredTicket, TicketState, TicketsData, WorkspaceData, WtPreview, WtResult } from './types'
 
 export async function fetchWorkspace(): Promise<WorkspaceData> {
   const res = await fetch('/api/workspace', { cache: 'no-store' })
@@ -87,3 +87,37 @@ export async function saveNote(path: string, note: Note): Promise<void> {
   })
   if (!res.ok) throw new Error((await res.text()).trim() || `${res.status}`)
 }
+
+export const fetchTickets = () => getJSON<TicketsData>('/api/tickets')
+
+async function postJSON<T>(url: string, body: unknown): Promise<T> {
+  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+  if (!res.ok) throw new Error((await res.text()).trim() || `${res.status}`)
+  return res.status === 204 ? (undefined as T) : res.json()
+}
+
+export interface TicketTarget {
+  repo: string
+  ref: string
+}
+
+export interface TicketPatch {
+  title?: string
+  state?: TicketState
+  nextStep?: string
+  blockedReason?: string
+  branch?: string
+}
+
+/** Stores what the human decided about a ticket; the server answers with the stored ticket. */
+export const saveTicket = (target: TicketTarget, patch: TicketPatch) => postJSON<StoredTicket>('/api/tickets', { ...target, ...patch })
+
+export const addDiscovery = (target: TicketTarget, text: string) =>
+  postJSON<StoredTicket>('/api/tickets/discoveries', { ...target, text, source: 'human' })
+
+export type TriageAction = 'drop' | 'in-scope' | 'promote' | 'reopen'
+
+export const triageDiscovery = (id: string, discoveryId: string, action: TriageAction) =>
+  postJSON<StoredTicket>('/api/tickets/triage', { id, discoveryId, action })
+
+export const dismissSession = (sessionId: string, dismissed: boolean) => postJSON<void>('/api/tickets/dismiss', { sessionId, dismissed })

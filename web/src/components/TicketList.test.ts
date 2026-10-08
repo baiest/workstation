@@ -44,7 +44,7 @@ describe('TicketList', () => {
     const first = w.get('[data-ticket="REG-5393"]')
     expect(first.get('.ticket-key').text()).toBe('REG-5393')
     expect(first.get('h3').text()).toBe('Update: use the ACE field')
-    expect(w.get('[data-ticket="none"] h3').text()).toBe('No ticket')
+    expect(w.get('[data-ticket="branch:fix/typo"] h3').text()).toBe('fix/typo')
   })
 
   it('answers "which worktree is for which branch and PR" in one row', () => {
@@ -108,7 +108,7 @@ describe('TicketList', () => {
   it('hides the editor button when none is installed and resume/plan without a session', () => {
     const w = render(tickets(), '')
     expect(w.find('[data-action=editor]').exists()).toBe(false)
-    const quiet = w.get('[data-ticket="none"] [data-branch="fix/typo"]')
+    const quiet = w.get('[data-ticket="branch:fix/typo"] [data-branch="fix/typo"]')
     expect(quiet.find('[data-action=resume]').exists()).toBe(false)
     expect(quiet.find('[data-action=plan]').exists()).toBe(false)
     expect(quiet.find('[data-action=terminal]').exists()).toBe(true)

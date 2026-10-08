@@ -19,7 +19,8 @@ export const stageTitle: Record<Stage, string> = {
 export const DORMANT_DAYS = 14
 const DAY = 24 * 3600 * 1000
 
-function needsYouNow(w: Worktree, pr: Pr | undefined, now: Date): boolean {
+/** Something calls for you in this worktree: Claude, a PR that needs changes or fails its checks, or conflicts. */
+export function needsYouNow(w: Worktree, pr: Pr | undefined, now: Date): boolean {
   if (needsYou(worktreeSessionAttention(w, now))) return true
   if (w.git.conflicts > 0) return true
   return pr?.state === 'open' && (pr.review === 'changes_requested' || pr.checks === 'failure')

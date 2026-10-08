@@ -20,6 +20,7 @@ import (
 	"workstation/internal/claude"
 	"workstation/internal/forge"
 	"workstation/internal/gitx"
+	"workstation/internal/tickets"
 )
 
 const (
@@ -56,6 +57,9 @@ type Worktree struct {
 	GitError string           `json:"gitError,omitempty"`
 	Sessions []claude.Session `json:"sessions"` // newest first
 	PR       *forge.PR        `json:"pr,omitempty"`
+	// Ticket is the ref of the ticket this worktree belongs to: a tracker key
+	// (REG-12) or the branch it is on. See tickets.Keyer.
+	Ticket string `json:"ticket,omitempty"`
 }
 
 type GitInfo struct {
@@ -82,6 +86,8 @@ type Builder struct {
 	// PRs, when set, returns the best pull request per source branch of a repo
 	// without waiting for the forge (known=false: not read yet).
 	PRs func(repo string) (byBranch map[string]*forge.PR, known bool)
+	// Keyer names the ticket of each worktree; the zero value uses the default pattern.
+	Keyer tickets.Keyer
 }
 
 func (b Builder) Build() (Workspace, error) {
@@ -110,7 +116,23 @@ func (b Builder) Build() (Workspace, error) {
 
 	ws.Repos = r.finish()
 	b.attachPRs(ws.Repos)
+	b.assignTickets(ws.Repos)
 	return ws, nil
+}
+
+// assignTickets names the ticket of every worktree. The main worktree is named by
+// its branch only: its folder is the repo's name, not a piece of work.
+func (b Builder) assignTickets(repos []Repo) {
+	for i := range repos {
+		for j := range repos[i].Worktrees {
+			w := &repos[i].Worktrees[j]
+			folder := w.Name
+			if w.IsMain {
+				folder = ""
+			}
+			w.Ticket = b.Keyer.Ref(w.Branch, folder)
+		}
+	}
 }
 
 // attachPRs puts the pull request of each branch on its worktree. The main

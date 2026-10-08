@@ -55,6 +55,7 @@ type Node struct {
 	Date      string    `json:"date"` // committer date of the tip, ISO 8601
 	Worktree  *Worktree `json:"worktree,omitempty"`
 	PR        *forge.PR `json:"pr,omitempty"`
+	Ticket    string    `json:"ticket,omitempty"` // filled in by the server (tickets.Keyer)
 }
 
 type Graph struct {

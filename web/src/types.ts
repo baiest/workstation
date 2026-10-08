@@ -61,6 +61,7 @@ export interface BranchNode {
   date: string
   worktree?: { name: string; path: string }
   pr?: Pr
+  ticket?: string
 }
 
 export interface BranchesResponse {
@@ -184,6 +185,8 @@ export interface Worktree {
   sessions: Session[]
   /** the pull request of its branch, from the server's cache; absent while prsPending is set on the repo */
   pr?: Pr
+  /** ref of its ticket: a tracker key (REG-12) or `branch:<name>`; see internal/tickets */
+  ticket?: string
 }
 
 export interface Repo {
@@ -205,4 +208,37 @@ export interface WorkspaceData {
   warnings: string[]
   generatedAt: string
   capabilities: { editor: string }
+}
+
+/** The human's decision about a ticket. '' is the inbox: spotted from a branch, not triaged yet. */
+export type TicketState = '' | 'backlog' | 'ready' | 'active' | 'parked' | 'blocked' | 'done' | 'ignored'
+
+export interface Discovery {
+  id: string
+  text: string
+  source: 'human' | 'cli'
+  status: 'open' | 'dropped' | 'in-scope' | 'promoted'
+  promotedTo?: string
+  at: string
+}
+
+/** What the server keeps about a ticket (internal/tickets): only what a human wrote. */
+export interface StoredTicket {
+  id: string
+  repo: string
+  ref: string
+  branch?: string
+  title?: string
+  state?: TicketState
+  blockedReason?: string
+  nextStep?: string
+  discoveries?: Discovery[]
+  created: string
+  updated: string
+}
+
+export interface TicketsData {
+  tickets: Record<string, StoredTicket>
+  dismissed: string[]
+  config: { wipLimit: number }
 }

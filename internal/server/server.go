@@ -17,6 +17,7 @@ import (
 
 	"workstation/internal/branches"
 	"workstation/internal/claude"
+	"workstation/internal/tickets"
 	"workstation/internal/workspace"
 )
 
@@ -31,6 +32,8 @@ type Server struct {
 	cleanup         CleanupService
 	worktreeCleanup WorktreeCleanupService
 	notes           NoteStore
+	tickets         TicketStore
+	keyer           tickets.Keyer
 
 	mu     sync.Mutex
 	last   *workspace.Workspace // snapshot actions are validated against
@@ -46,6 +49,8 @@ type options struct {
 	cleanup         CleanupService
 	worktreeCleanup WorktreeCleanupService
 	notes           NoteStore
+	tickets         TicketStore
+	keyer           tickets.Keyer
 }
 
 // PlanReader loads a session's plan by slug (implemented by claude.CLI).
@@ -105,7 +110,7 @@ func New(build BuildFunc, launcher Launcher, web fs.FS, opts ...Option) http.Han
 	for _, opt := range opts {
 		opt(&o)
 	}
-	s := &Server{build: build, launcher: launcher, web: web, plans: o.plans, branches: o.branches, cleanup: o.cleanup, worktreeCleanup: o.worktreeCleanup, notes: o.notes}
+	s := &Server{build: build, launcher: launcher, web: web, plans: o.plans, branches: o.branches, cleanup: o.cleanup, worktreeCleanup: o.worktreeCleanup, notes: o.notes, tickets: o.tickets, keyer: o.keyer}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/worktree-cleanup", s.handleWorktreeCleanupPreview)
 	mux.HandleFunc("POST /api/worktree-cleanup", s.handleWorktreeCleanupRemove)
@@ -113,6 +118,11 @@ func New(build BuildFunc, launcher Launcher, web fs.FS, opts ...Option) http.Han
 	mux.HandleFunc("POST /api/cleanup", s.handleCleanupDelete)
 	mux.HandleFunc("GET /api/notes", s.handleNotesGet)
 	mux.HandleFunc("POST /api/notes", s.handleNotesSet)
+	mux.HandleFunc("GET /api/tickets", s.handleTicketsGet)
+	mux.HandleFunc("POST /api/tickets", s.handleTicketsSet)
+	mux.HandleFunc("POST /api/tickets/discoveries", s.handleDiscoveryAdd)
+	mux.HandleFunc("POST /api/tickets/triage", s.handleDiscoveryTriage)
+	mux.HandleFunc("POST /api/tickets/dismiss", s.handleDismiss)
 	mux.HandleFunc("GET /api/workspace", s.handleWorkspace)
 	mux.HandleFunc("GET /api/plan", s.handlePlan)
 	mux.HandleFunc("GET /api/branches", s.handleBranches)
@@ -229,6 +239,9 @@ func (s *Server) refresh() (workspace.Workspace, error) {
 	}()
 	f.err = errors.New("workspace build did not complete") // replaced unless build panics
 	f.ws, f.err = s.build()
+	if f.err == nil {
+		s.migrateNotes(f.ws)
+	}
 	return f.ws, f.err
 }
 
@@ -303,6 +316,12 @@ func (s *Server) handleBranches(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		internalError(w, "branches", err)
 		return
+	}
+	for i := range resp.Graph.Nodes {
+		n := &resp.Graph.Nodes[i]
+		if !n.IsDefault {
+			n.Ticket = s.keyer.Ref(n.Branch, "")
+		}
 	}
 	writeJSON(w, resp)
 }
